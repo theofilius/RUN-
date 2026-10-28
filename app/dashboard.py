@@ -23,9 +23,16 @@ from src.analysis.easy_check import mislabelled_easy_runs, weekly_check
 from src.analysis.fitness_trend import monthly_summary, training_runs_with_efficiency, trend_line
 from src.analysis.heat_adjust import SLOWDOWN_TABLE, load_runs_with_heat
 from src.analysis.race_postmortem import compare_races, race_rows
-from src.config import COMPARE_WEEKS, EASY_HR_MAX, MAX_HR, RACES, REFERENCE_HR, TARGET_EASY_PCT
+from src.analysis.run_conditions import (
+    WINDOWS, air_note, aqi_label, combine_air, day_conditions, describe_window, next_hours, window_conditions,
+)
+from src.config import (
+    COMPARE_WEEKS, EASY_HR_MAX, HOME_CITY, MAX_HR, RACES, REFERENCE_HR, RUN_HOURS, TARGET_EASY_PCT,
+)
+from src.loaders.forecast_openmeteo import fetched_at, load_forecast
+from src.loaders.iqair import load_current
 from src.export.fit_workout import file_name, workout_fit_bytes
-from src.planner.plan_generator import build_plan, next_monday
+from src.planner.month_plan import build_month_plan, covered_until_from_file, current_week, describe_evaluation
 from src.units import format_duration, format_pace
 
 # Colours: validated for colour-blind safety on the light background.
@@ -43,6 +50,21 @@ DATA_DIR = ROOT / "data"
 def load(csv_path):
     """Load once and keep in memory; Streamlit re-runs this file on every click."""
     return load_runs_with_heat(csv_path)
+
+
+FORECAST_CACHE = DATA_DIR / "forecast_cache.csv"
+
+
+@st.cache_data(ttl=600)
+def get_forecast():
+    """Weather + air-quality forecast; the loader itself re-downloads hourly."""
+    return load_forecast(FORECAST_CACHE, HOME_CITY)
+
+
+@st.cache_data(ttl=1800)
+def get_air_now():
+    """Measured AQI from IQAir, or None without an API key."""
+    return load_current(DATA_DIR / "iqair_cache.json", HOME_CITY, ROOT)
 
 
 def pace_axis(fig, values):
@@ -75,7 +97,7 @@ def how(lines):
 
 # ---------- page ----------
 
-st.set_page_config(page_title="Running Training Analyzer", layout="wide")
+st.set_page_config(page_title="Running Training Analyzer", layout="wide", initial_sidebar_state="expanded")
 st.title("Running Training Analyzer")
 st.caption("Garmin records your runs. This explains your training.")
 
@@ -98,52 +120,193 @@ first_month, last_month = monthly.iloc[0], monthly.iloc[-1]
 total_easy_pct = 100 * weekly["easy_time_s"].sum() / weekly["moving_time_s"].sum()
 
 c1, c2, c3 = st.columns(3)
-c1.metric(f"{race_b} time", format_duration(race_times[1]),
-          f"-{format_duration(race_times[0] - race_times[1])} vs {race_a}", delta_color="off")
+# Comparisons go in a caption, not st.metric's delta: the delta always gets an
+# up/down arrow, and "↑ target 80%" next to a low score reads as good news.
 pace_change = last_month["pace_at_ref_hr_s"] - first_month["pace_at_ref_hr_s"]  # negative = faster
-c2.metric(f"Pace @ {REFERENCE_HR} bpm, {monthly.index[-1]}", format_pace(last_month["pace_at_ref_hr_s"]),
-          f"{abs(pace_change):.0f} s/km {'faster' if pace_change < 0 else 'slower'} than {monthly.index[0]}",
-          delta_color="off")
-c3.metric("Time spent easy", f"{total_easy_pct:.0f}%", f"target {TARGET_EASY_PCT}%", delta_color="off")
+c1.metric(f"{race_b} time", format_duration(race_times[1]))
+c1.caption(f"Race pace {races.iloc[1]['pace']}/km · {format_duration(race_times[0] - race_times[1])} "
+           f"faster than {race_a}")
+c2.metric(f"Aerobic fitness: est. pace at {REFERENCE_HR} bpm", format_pace(last_month["pace_at_ref_hr_s"]))
+c2.caption(f"Training runs in {monthly.index[-1].strftime('%b %Y')}, races excluded · "
+           f"{abs(pace_change):.0f} s/km {'faster' if pace_change < 0 else 'slower'} than "
+           f"{monthly.index[0].strftime('%b %Y')}")
+c3.metric("Time spent easy", f"{total_easy_pct:.0f}%")
+c3.caption(f"target {TARGET_EASY_PCT}%")
 
 tab_plan, tab_pm, tab_fit, tab_easy, tab_heat = st.tabs(
-    ["Next week", "Race post-mortem", "Aerobic fitness", "Easy-run check", "Heat"]
+    ["Training plan", "Race post-mortem", "Aerobic fitness", "Easy-run check", "Heat"]
 )
 
 # ---------- planner ----------
 
-with tab_plan:
-    start = st.date_input("Week starting (Monday)", next_monday())
-    plan = build_plan(runs, start)
-    ctx = plan["context"]
+ICONS = {"pass": "✅ pass", "info": "ℹ️ note", "caution": "⚠️ caution", "high": "🛑 high"}
+STATUS = {"done": "✅ done", "current": "▶️ this week", "needs data": "⏳ export needed", "upcoming": "upcoming"}
+TITLES = {"easy": "Easy run", "long": "Long run", "tempo": "Tempo run", "interval": "Interval run"}
 
-    st.subheader(f"{plan['week_type'].capitalize()} week · "
-                 f"{sum(w.distance_km for w in plan['workouts']):.1f} km over {len(plan['workouts'])} runs")
-    st.info(plan["why"])
 
-    rows = []
-    for w in plan["workouts"]:
-        steps = " → ".join(
-            f"{s.name} {s.distance_km:g} km (HR {s.hr_min}-{s.hr_max})" if s.hr_min
-            else f"{s.name} {s.distance_km:g} km (HR ≤ {s.hr_max})"
-            for s in w.steps
-        )
-        rows.append({"day": f"{w.day:%a %d %b}", "type": w.kind, "km": w.distance_km,
-                     "workout": steps, "why": w.reason})
-    st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
-    st.caption(f"Pace guide: easy ≈ {format_pace(plan['easy_pace_s'])}/km at {EASY_HR_MAX} bpm in your usual heat. "
-               "Follow heart rate, not pace. Not medical advice - stop and rest if something hurts.")
-
-    st.markdown("**Send to your watch** - download, then copy into `GARMIN/NewFiles` on the watch over USB.")
-    for col, w in zip(st.columns(len(plan["workouts"])), plan["workouts"]):
-        col.download_button(f"⬇ {w.day:%a} {w.kind} {w.distance_km:g} km", workout_fit_bytes(w),
-                            file_name=file_name(w), mime="application/octet-stream", key=f"fit-{w.day}")
+def render_week(plan):
+    """One week's why, daily menu and safety checks."""
+    st.info(f"{plan['why']}\n\n*Source: {plan['why_sources']}*")
+    if plan.get("pace_note"):
+        st.caption(plan["pace_note"])
+    for day in plan["days"]:
+        if day.kind == "rest":
+            st.markdown(f"**{day.day:%a %d %b} · Rest**  \n"
+                        f"<span style='color:{MUTED}'>{day.reason}</span>", unsafe_allow_html=True)
+            continue
+        with st.container(border=True):
+            st.markdown(f"**{day.day:%a %d %b} · {TITLES[day.kind]} · "
+                        f"{day.distance_km:g} km · ~{day.minutes:.0f} min**")
+            st.caption(day.reason)
+            if forecast is not None:
+                conditions = day_conditions(forecast, day.day)
+                lines = [describe_window(n, c) for n, c in conditions.items() if c]
+                if lines:
+                    note = air_note(conditions)
+                    st.caption("🌤 Forecast (info only) - " + " · ".join(lines) + (f"  \n⚠️ {note}" if note else ""))
+            st.dataframe(pd.DataFrame([{
+                "step": s.name,
+                "km": s.distance_km,
+                "heart rate": f"{s.hr_min}-{s.hr_max} bpm",
+                "pace": f"{format_pace(s.pace_fast_s)}-{format_pace(s.pace_slow_s)} /km",
+                "time": f"~{s.minutes:.0f} min",
+                "how": s.note,
+            } for s in day.steps]), hide_index=True, use_container_width=True)
+            st.download_button(f"⬇ Download {day.day:%a} workout (.fit)", workout_fit_bytes(day),
+                               file_name=file_name(day), mime="application/octet-stream",
+                               key=f"fit-{day.day}")
 
     st.markdown("**Safety checks**")
     for check in plan["checks"]:
-        icon = "✅" if check["passed"] else "⚠️"
-        st.markdown(f"{icon} **{check['rule']}** - {check['detail']}  \n"
-                    f"<span style='color:{MUTED}'>{check['formula']}</span>", unsafe_allow_html=True)
+        st.markdown(f"{ICONS[check['level']]} · **{check['rule']}** - {check['detail']}  \n"
+                    f"<span style='color:{MUTED}'>{check['formula']}<br>Source: {check['sources']}</span>",
+                    unsafe_allow_html=True)
+
+
+# ---------- forecast sidebar ----------
+
+with st.sidebar:
+    st.subheader(f"🌤 {HOME_CITY} weather")
+    if st.button("🔄 Refresh forecast", use_container_width=True):
+        load_forecast(FORECAST_CACHE, HOME_CITY, force=True)
+        get_forecast.clear()
+        get_air_now.clear()
+
+air_now = get_air_now()
+forecast = get_forecast()
+if forecast is not None:
+    forecast = combine_air(forecast, air_now)
+
+with st.sidebar:
+    if forecast is None:
+        st.caption("Forecast unavailable - no internet and no saved forecast.")
+    else:
+        now = pd.Timestamp.now()
+        hours = next_hours(forecast, now)
+        current = hours.iloc[0]
+        aqi_now = air_now["us_aqi"] if air_now else current["us_aqi"]
+
+        c1, c2 = st.columns(2)
+        c1.metric(f"Now {current['icon']}", f"{current['air_temp_c']:.0f}°C")
+        c2.metric("US AQI", "-" if pd.isna(aqi_now) else f"{aqi_now:.0f}")
+        st.caption(f"{current['weather']} · dew point {current['dew_point_c']:.0f}°C · "
+                   f"heat -{current['heat_slowdown_pct']:.0f}% · rain {current['rain_chance_pct']:.0f}%"
+                   + ("" if pd.isna(aqi_now) else f" · air {aqi_label(aqi_now)}"))
+
+        st.markdown("**Next hours**")
+        st.dataframe(pd.DataFrame({
+            "time": hours["time"].dt.strftime("%H:%M"),
+            " ": hours["icon"],
+            "°C": hours["air_temp_c"].round(0).astype(int),
+            "rain": hours["rain_chance_pct"].map(lambda p: f"{p:.0f}%"),
+            "AQI": hours["us_aqi"].map(lambda a: "-" if pd.isna(a) else f"{a:.0f}"),
+        }), hide_index=True, use_container_width=True)
+
+        # Your run window: today if it has not passed yet, otherwise tomorrow.
+        run_day = now.date() if now.hour <= RUN_HOURS[1] else (now + pd.Timedelta(days=1)).date()
+        run = window_conditions(forecast, run_day, RUN_HOURS)
+        if run:
+            when = "today" if run_day == now.date() else "tomorrow"
+            st.markdown(f"**Your run time {when} ({RUN_HOURS[0]:02d}-{RUN_HOURS[1]:02d})**")
+            st.caption(describe_window("run time", run).split(": ", 1)[1])
+            note = air_note({"run time": run})
+            if note:
+                st.warning(note)
+
+        updated = fetched_at(FORECAST_CACHE)
+        st.caption(f"Updated {updated:%H:%M} · Open-Meteo · info only, the plan does not change. "
+                   "Air quality is a model estimate.")
+
+with tab_plan:
+    if air_now:
+        st.info(f"🌫 Air right now: **AQI {air_now['us_aqi']:.0f} - {aqi_label(air_now['us_aqi'])}** "
+                f"(measured by IQAir at {air_now['station']}, {air_now['time']:%H:%M})")
+    else:
+        st.caption("🌫 Measured air quality is off. Add a free IQAir key as IQAIR_API_KEY=... in a .env file "
+                   "in the project folder to see the real-time AQI and correct the forecast with it.")
+    covered = covered_until_from_file(csv_path)
+    weeks = build_month_plan(runs, covered)
+    plan = current_week(weeks)["plan"]
+    ctx = plan["context"]
+
+    st.subheader(f"Training plan from {weeks[0]['start']:%a %d %b %Y}")
+    st.caption(f"Your data covers runs up to {covered:%a %d %b}. Export a new Garmin CSV at the end of each "
+               "week: that week is evaluated and the following weeks are re-planned. Frequency first: one "
+               "5 km run is added each week until you reach your target; the long run holds until then, "
+               "then grows 1 km a week. Paces are estimates in your usual heat - follow heart rate, not "
+               "pace. Not medical advice.")
+
+    st.dataframe(pd.DataFrame([{
+        "week": w["number"],
+        "dates": f"{w['start']:%d %b} - {w['end']:%d %b}",
+        "type": w["plan"]["week_type"],
+        "km": sum(x.distance_km for x in w["plan"]["workouts"]),
+        "long run km": next((x.distance_km for x in w["plan"]["workouts"] if x.kind == "long"), 0.0),
+        "runs": len(w["plan"]["workouts"]),
+        "status": STATUS[w["status"]],
+        "evaluation": describe_evaluation(w["evaluation"]) if w["evaluation"] else "",
+    } for w in weeks]), hide_index=True, use_container_width=True)
+
+    with st.expander(f"🌤 Weather & air quality forecast - {HOME_CITY} (info only)"):
+        if forecast is None:
+            st.caption("Forecast unavailable (no internet and no cached forecast).")
+        else:
+            rows = []
+            for day in sorted(set(forecast["time"].dt.date)):
+                for name, c in day_conditions(forecast, day).items():
+                    if c:
+                        rows.append({
+                            "date": f"{day:%a %d %b}",
+                            "window": f"{name} {WINDOWS[name][0]:02d}-{WINDOWS[name][1]:02d}",
+                            "temp °C": round(c["air_temp_c"]),
+                            "dew point °C": round(c["dew_point_c"]),
+                            "heat slowdown": f"{c['heat_slowdown_pct']:.0f}%",
+                            "rain chance": f"{c['rain_chance_pct']:.0f}%",
+                            "US AQI": "" if c["us_aqi"] is None else f"{c['us_aqi']:.0f} ({aqi_label(c['us_aqi'])})",
+                            "AQI source": c["aqi_source"],
+                            "PM2.5 µg/m³": "" if c["pm2_5"] is None else f"{c['pm2_5']:.0f}",
+                        })
+            st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+            st.caption("Weather: Open-Meteo, 16 days. Air quality: **measured** = IQAir now; **adjusted** = "
+                       "Open-Meteo model (CAMS) scaled by how far off it is from the IQAir measurement, fading "
+                       "out over 48 h; **model** = Open-Meteo only (up to ~7 days); blank = no air data. "
+                       "AQI categories: US EPA. Heat slowdown: same rule of thumb as the Heat tab.")
+
+    for w in weeks:
+        p = w["plan"]
+        label = (f"Week {w['number']} · {w['start']:%d %b} - {w['end']:%d %b} · {p['week_type']} · "
+                 f"{sum(x.distance_km for x in p['workouts']):g} km · {STATUS[w['status']]}")
+        with st.expander(label, expanded=w["status"] == "current"):
+            if w["evaluation"]:
+                st.success(f"Evaluation: {describe_evaluation(w['evaluation'])}")
+            elif w["status"] == "upcoming":
+                st.caption("Provisional - recalculated when the weeks before it have real data.")
+            render_week(p)
+
+    with st.expander("Heart-rate settings - why these numbers?"):
+        for s in plan["hr_settings"]:
+            st.markdown(f"**{s['setting']}** - {s['evidence']}  \n"
+                        f"<span style='color:{MUTED}'>Source: {s['sources']}</span>", unsafe_allow_html=True)
 
     if ctx["empty_weeks"]:
         st.warning(f"No runs recorded in week(s) of {', '.join(ctx['empty_weeks'])} - counted as 0 km. "
@@ -153,8 +316,17 @@ with tab_plan:
         f"{ctx['runs_per_week']:.1f} runs/week, longest training run {ctx['longest_recent_km']:.1f} km, "
         f"{ctx['easy_pct']:.0f}% easy.",
         "Week type, first rule that matches: race in the last 14 days → recovery (easy, no extra distance); "
-        "easy time under 50% → hold distance, all easy; otherwise → +10% distance and one tempo run.",
-        "Long run: at most 40% of the week and at most 1.5 km longer than your recent longest.",
+        "easy time under 50% → hold distance, all easy; injury in the last 12 months → hold distance, "
+        "one tempo run; otherwise → +10% distance and one tempo run.",
+        "Runs per week: one 5 km run is added each week (not in recovery weeks, and only if at most one "
+        "run was missed last week) until RUNS_PER_WEEK in config.py. A run is not added if it would put "
+        "the week more than 30% above the last 7 days (Nielsen 2014).",
+        "Long run: starts from your recent longest run and never goes down. It holds while runs are being "
+        "added, then +1 km a week when last week's long run reached 90% of plan; max 21 km.",
+        "Future weeks assume planned runs are done as planned, until real data replaces them.",
+        "Paces: this week's come from the median efficiency of your last 4 weeks of real runs. Future weeks "
+        "add your own recent fitness gain per week (straight-line trend of efficiency, max 1%/week). Each "
+        "new export recalculates them from real data - if you get fitter faster, paces speed up faster.",
         "Pace guide = 1000 ÷ (recent efficiency × HR) - your efficiency already includes the usual heat.",
     ])
 
@@ -291,6 +463,8 @@ with tab_heat:
         "Heat score = air temp °F + dew point °F; slowdown % is read from this table (straight line between rows): "
         + ", ".join(f"{s} → {p}%" for s, p in SLOWDOWN_TABLE),
         "Heat-adjusted pace = actual pace ÷ (1 + slowdown % ÷ 100). A rule of thumb for comparing runs, not an exact law.",
+        "Slower runners likely lose more than this estimate: in Hodgson et al. 2022 the slowest finishers "
+        "lost the most time per extra °C.",
     ])
     with st.expander("Table"):
         st.dataframe(pd.DataFrame({

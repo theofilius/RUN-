@@ -17,6 +17,8 @@ Between the listed points we interpolate in a straight line.
 
 so a 9:00/km run with a 5% slowdown counts as about 8:34/km in cool weather.
 It is an estimate, not a law: use it to compare runs, not as a promise.
+Slower runners likely lose more than the table says: in Hodgson et al. 2022
+(Great North Run) the slowest finishers lost the most time per extra degree C.
 """
 
 from pathlib import Path
@@ -113,3 +115,4 @@ if __name__ == "__main__":
     print("  heat score  = air temp F + dew point F")
     print(f"  slowdown %  = straight line between {SLOWDOWN_TABLE}")
     print("  heat-adj    = pace / (1 + slowdown % / 100)")
+    print("  note        = slower runners likely lose more than this (Hodgson et al. 2022)")

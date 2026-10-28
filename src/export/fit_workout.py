@@ -27,17 +27,20 @@ from fit_tool.profile.profile_type import (
     WorkoutStepTarget,
 )
 
+from src.units import format_pace
+
 # FIT stores a custom heart-rate target as bpm + 100.
 # (Values 0-100 mean "% of max HR", so 100 is added to tell them apart.)
 HR_OFFSET = 100
 
-# A watch HR target needs a low and a high end. Easy steps only have a
-# ceiling, so the floor is set low enough that it never alerts.
+# Fallback floor for a step that only has an HR ceiling.
 EASY_HR_FLOOR = 100
 
 INTENSITY = {
     "warm-up": Intensity.WARMUP,
     "cool-down": Intensity.COOLDOWN,
+    "interval": Intensity.INTERVAL,
+    "recovery": Intensity.RECOVERY,
 }
 
 
@@ -52,19 +55,32 @@ def file_name(workout):
 
 
 def step_message(step, index):
-    """One plan Step -> one FIT workout step: distance + heart-rate range."""
+    """One plan Step -> one FIT workout step: distance + heart-rate range.
+
+    The watch alerts on heart rate; the pace range rides along in the step
+    name and notes, so you can see it on the watch too.
+    """
     hr_low = step.hr_min or EASY_HR_FLOOR
+    pace = f"{format_pace(step.pace_fast_s)}-{format_pace(step.pace_slow_s)}"
 
     msg = WorkoutStepMessage()
     msg.message_index = index
-    msg.workout_step_name = f"{step.name} {hr_low}-{step.hr_max}"
+    msg.workout_step_name = f"{step.name} {pace}/km"
+    msg.notes = f"HR {hr_low}-{step.hr_max}, pace {pace}/km. {step.note}"
     msg.intensity = INTENSITY.get(step.name, Intensity.ACTIVE)
     msg.duration_type = WorkoutStepDuration.DISTANCE
     msg.duration_distance = step.distance_km * 1000  # metres
-    msg.target_type = WorkoutStepTarget.HEART_RATE
-    msg.target_hr_zone = 0  # 0 = use the custom range below, not a Garmin zone
-    msg.custom_target_heart_rate_low = hr_low + HR_OFFSET
-    msg.custom_target_heart_rate_high = step.hr_max + HR_OFFSET
+    if step.name == "interval":
+        # HR lags on short repeats, so the watch alerts on pace instead (speed in m/s).
+        msg.target_type = WorkoutStepTarget.SPEED
+        msg.target_speed_zone = 0
+        msg.custom_target_speed_low = 1000 / step.pace_slow_s
+        msg.custom_target_speed_high = 1000 / step.pace_fast_s
+    else:
+        msg.target_type = WorkoutStepTarget.HEART_RATE
+        msg.target_hr_zone = 0  # 0 = use the custom range below, not a Garmin zone
+        msg.custom_target_heart_rate_low = hr_low + HR_OFFSET
+        msg.custom_target_heart_rate_high = step.hr_max + HR_OFFSET
     return msg
 
 
@@ -104,15 +120,14 @@ def export_plan(plan, out_dir):
 
 
 if __name__ == "__main__":
-    # python -m src.export.fit_workout "data/Running Data may-oct.csv" [YYYY-MM-DD]
+    # python -m src.export.fit_workout "data/Running Data may-oct.csv"   (exports this week of the plan)
     import sys
 
     from src.analysis.heat_adjust import load_runs_with_heat
-    from src.planner.plan_generator import build_plan, next_monday
+    from src.planner.month_plan import build_month_plan, covered_until_from_file, current_week
 
     runs = load_runs_with_heat(sys.argv[1])
-    start = sys.argv[2] if len(sys.argv) > 2 else next_monday()
-    plan = build_plan(runs, start)
+    plan = current_week(build_month_plan(runs, covered_until_from_file(sys.argv[1])))["plan"]
 
     out_dir = Path("exports") / f"week-{plan['context']['plan_start']:%Y-%m-%d}"
     for path in export_plan(plan, out_dir):

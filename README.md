@@ -26,7 +26,7 @@ The app shows the formula and the data behind every number it gives.
 | **Aerobic fitness trend** | Estimated pace at a fixed heart rate (e.g. pace @ 160 bpm) per run and per month |
 | **Easy-run honesty check** | Weekly easy vs hard time against an 80/20 target, plus runs you *called* easy whose heart rate says otherwise |
 | **Heat-adjusted pace** | Real air temperature and dew point for each run (from Open-Meteo), converted to an expected slowdown |
-| **Next-week planner** | Generates next week's runs from your data, gives a reason for each, and runs visible safety checks |
+| **Next-week planner** | A 7-day menu from your data: rest days plus runs split into warm-up / main / cool-down, each step with distance, heart-rate range, pace range, estimated time and how to run it. Every run has a reason, and the week runs visible safety checks |
 | **`.fit` workout export** | Turns planned runs into Garmin workout files you copy to your watch |
 | **Dashboard** | All of the above in a local Streamlit app, with charts, tables and "How is this calculated?" boxes |
 
@@ -85,9 +85,9 @@ python -m src.analysis.race_postmortem "$CSV"
 python -m src.analysis.fitness_trend   "$CSV"
 python -m src.analysis.easy_check      "$CSV"
 python -m src.analysis.heat_adjust     "$CSV"
-python -m src.planner.plan_generator   "$CSV"              # next Monday
-python -m src.planner.plan_generator   "$CSV" 2026-11-09   # a specific week
-python -m src.export.fit_workout       "$CSV"              # writes exports/week-.../*.fit
+python -m src.planner.month_plan       "$CSV"              # month plan from PLAN_START + this week's menu
+python -m src.planner.plan_generator   "$CSV" 2026-11-09   # a single week starting on a date
+python -m src.export.fit_workout       "$CSV"              # this week's runs -> exports/week-.../*.fit
 ```
 
 ---
@@ -120,7 +120,7 @@ Finder. Use [OpenMTP](https://openmtp.ganeshrvel.com/) to copy the files.
 | Easy % | moving time of easy runs ÷ total moving time, per Monday–Sunday week |
 | Heat slowdown | air temp °F + dew point °F, looked up in a runner's rule-of-thumb table (0% at 100 → 10% at 180) |
 | Heat-adjusted pace | pace ÷ (1 + slowdown %) |
-| Acute:chronic load | km this week ÷ average km/week over this week and the 3 before it |
+| Acute:chronic load | km this week ÷ average km/week over the 3 weeks *before* it (uncoupled) |
 
 The watch's own temperature sensor is **not** used. It sits against your wrist
 and reads several degrees too high. Weather comes from
@@ -134,14 +134,25 @@ The planner checks these rules in order and uses the first one that matches:
 
 1. **A race in the last 14 days** → *recovery week*: all easy, no extra distance.
 2. **Easy time under 50%** → *fix-easy week*: distance holds, every run capped at the easy HR.
-3. **Otherwise** → *build week*: +10% distance and one tempo run.
+3. **An injury in the last 12 months** (`INJURED_LAST_12_MONTHS` in `config.py`) → *build week* with distance held flat.
+4. **Otherwise** → *build week*: +10% distance and one tempo run.
 
-Safety checks shown with every plan:
+The planned distance never goes more than 30% above the last 7 days. The long
+run is at most half the week and grows by at most 1.5 km.
 
-- Weekly distance goes up by at most 10% over the 4-week average.
-- The long run grows by at most 1.5 km.
-- No hard sessions within 14 days of a race.
-- A flag for any week where acute:chronic load went above 1.3.
+Every plan shows these checks, each with a level (pass / note / caution / high)
+and its source:
+
+| Check | Evidence |
+|---|---|
+| Planned week ≤ last 7 days + 30% | Nielsen et al. 2014, doi:10.2519/jospt.2014.5164 |
+| Weekly distance ≤ 4-week average + 10% | Cautious default. A 10%-rule trial did not reduce injuries (Buist et al. 2008, doi:10.1177/0363546507307505) |
+| Distance not rising 3 weeks in a row | Nielsen et al. 2014 (discussion) |
+| Long run ≤ recent longest + 1.5 km | Planner default; Fokkema et al. 2020 links longer long runs to faster times (doi:10.1111/sms.13725) |
+| No hard sessions within 14 days of a race | Planner default |
+| Acute:chronic ratio: caution ≥ 1.3, high ≥ 1.5 | Cloosterman et al. 2024, doi:10.4085/1062-6050-0430.23. Weak evidence for runners |
+
+All sources are listed in [`src/evidence.py`](src/evidence.py).
 
 ---
 
