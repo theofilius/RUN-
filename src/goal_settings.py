@@ -1,7 +1,8 @@
 """Your goal race, as chosen in the dashboard.
 
-Saved in data/goal.json (inside data/, so it stays private and out of git).
-Anything not saved there falls back to GOAL_RACE in config.py.
+The active training program (data/programs.json, see src/programs.py) when there
+is one; otherwise data/goal.json, the older single goal. Anything not saved falls
+back to GOAL_RACE in config.py. All of it lives in data/, private and out of git.
 """
 
 import json
@@ -15,6 +16,10 @@ DISTANCES = {"5K": 5.0, "10K": 10.0, "Half marathon": 21.1, "Marathon": 42.2}
 
 
 def load_goal(path=GOAL_FILE):
+    from src import programs
+    program = programs.active(programs.load(Path(path).parent))
+    if program:
+        return {**GOAL_RACE, **programs.goal(program)}
     goal = dict(GOAL_RACE)
     path = Path(path)
     if path.exists():

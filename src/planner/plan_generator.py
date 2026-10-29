@@ -22,6 +22,7 @@ heart-rate first; paces are estimates from your recent efficiency, already
 in your usual Jakarta heat.
 """
 
+import math
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
@@ -45,8 +46,9 @@ LONG_RUN_STEP_KM = 1.0      # weekly long-run growth when last week's long run w
 # Longest long run per goal distance (km). Half: Fokkema 2020 linked a longest run over 21 km to faster halves.
 LONG_RUN_MAX_BY_DISTANCE = {5.0: 12.0, 10.0: 16.0, 21.1: 21.0, 42.2: 32.0}
 LONG_RUN_PEAK_SHARE = 0.5   # with a target, the long run is at most half the target's peak week
-MIN_RUNS_AT_PEAK = 4        # never fewer runs than this to fit under the target's peak
+MIN_RUNS_AT_PEAK = 5        # never fewer runs than this to fit under the peak - frequency first (5-6 a week)
 RACE_PACE_KM = 2.0          # goal-pace finish at the end of build-week long runs
+RACE_PACE_STEP_KM, RACE_PACE_MAX_KM = 0.5, 5.0   # a hard goal-pace finish grows like a tempo block
 RACE_PACE_SPREAD_S = 5      # goal pace +/- this many seconds per km
 TARGET_PACE_SLACK_S = 20    # target-based session paces may be up to this much slower than your HR zone
 
@@ -103,6 +105,9 @@ class Workout:
     kind: str            # "easy", "long", "tempo", "rest"
     steps: list[Step] = field(default_factory=list)
     reason: str = ""
+    # The reason as data, so the dashboard can word it in any language:
+    # strides, finish_km (goal-pace finish), reps, from_target, fuel_min, rest (why a rest day).
+    info: dict = field(default_factory=dict)
 
     @property
     def distance_km(self):
@@ -114,7 +119,9 @@ class Workout:
 
     @property
     def is_hard(self):
-        return any(step.name in ("tempo", "interval") for step in self.steps)
+        """Tempo, intervals, or a goal-pace block above easy heart rate."""
+        return any(step.name in ("tempo", "interval")
+                   or (step.name == "race pace" and step.hr_max > EASY_HR_MAX) for step in self.steps)
 
 
 def round_half(km):
@@ -237,13 +244,24 @@ def easy_run(day, km, eff, strides=False):
         make_step("warm-up", 1.0, WARMUP_HR, eff, WARMUP_NOTE),
         make_step("easy", km - 1.5, EASY_HR, eff, note),
         make_step("cool-down", 0.5, WARMUP_HR, eff, COOLDOWN_NOTE),
-    ], reason)
+    ], reason, {"strides": strides})
 
 
 INTERVAL_WARMUP_KM, INTERVAL_COOLDOWN_KM = 1.0, 0.5
+# The hard session grows each time it comes round: one more 800 m repeat, or 0.5 km more tempo.
+TEMPO_START_KM, TEMPO_STEP_KM, TEMPO_MAX_KM = 2.5, 0.5, 6.0
+INTERVAL_START_REPS, INTERVAL_MAX_REPS = 3, 6
 
 
-def interval_run(day, km, eff, pace_s=None):
+def quality_km(quality, step):
+    """Distance of the hard session at its step of progression, warm-up and cool-down included."""
+    if quality == "tempo":
+        return 1.5 + min(TEMPO_MAX_KM, TEMPO_START_KM + TEMPO_STEP_KM * step) + 1.0
+    reps = min(INTERVAL_MAX_REPS, INTERVAL_START_REPS + step)
+    return INTERVAL_WARMUP_KM + reps * REP_KM + (reps - 1) * JOG_KM + INTERVAL_COOLDOWN_KM
+
+
+def interval_run(day, km, eff, pace_s=None, reps=None):
     """Warm-up, 3-6 x 800 m hard with 400 m jog between, cool-down - never longer than km.
 
     total = warm-up + reps x 800 m + (reps - 1) x 400 m + cool-down
@@ -251,7 +269,8 @@ def interval_run(day, km, eff, pace_s=None):
             it, the pace range comes from the interval HR zone.
     """
     fixed = INTERVAL_WARMUP_KM + INTERVAL_COOLDOWN_KM - JOG_KM
-    reps = max(3, min(6, int((km - fixed) // (REP_KM + JOG_KM))))
+    fits = int((km - fixed) / (REP_KM + JOG_KM) + 1e-9)
+    reps = max(INTERVAL_START_REPS, min(INTERVAL_MAX_REPS, max(reps or 0, fits)))
     steps = [make_step("warm-up", INTERVAL_WARMUP_KM, WARMUP_HR, eff,
                        WARMUP_NOTE + " Finish with 4 x 20 s relaxed strides.")]
     for i in range(reps):
@@ -266,7 +285,8 @@ def interval_run(day, km, eff, pace_s=None):
     steps.append(make_step("cool-down", INTERVAL_COOLDOWN_KM, WARMUP_HR, eff, COOLDOWN_NOTE))
     return Workout(day, "interval", steps,
                    f"Interval week (alternates with tempo): {reps} x 800 m trains your top-end aerobic "
-                   "capacity (VO2max). One hard session a week keeps most running easy.")
+                   "capacity (VO2max). One hard session a week keeps most running easy.",
+                   {"reps": reps, "from_target": bool(pace_s)})
 
 
 def race_pace_step(km, pace_s, eff):
@@ -311,9 +331,13 @@ def target_session_paces(race, eff):
     return result
 
 
-def long_run(day, km, eff, finish_pace_s=None):
-    """Easy long run; with finish_pace_s, the last RACE_PACE_KM before the cool-down are at goal pace."""
-    finish = RACE_PACE_KM if finish_pace_s and km - 2.0 - RACE_PACE_KM >= 3.0 else 0.0
+def long_run(day, km, eff, finish_pace_s=None, finish_km=RACE_PACE_KM):
+    """Easy long run; with finish_pace_s, the last finish_km before the cool-down are at goal pace.
+
+    The finish is shortened when the run is too short for it (at least 3 km easy before it).
+    """
+    finish = min(finish_km, km - 5.0) if finish_pace_s else 0.0
+    finish = finish if finish >= RACE_PACE_KM - 0.01 else 0.0
     steps = [
         make_step("warm-up", 1.0, WARMUP_HR, eff, WARMUP_NOTE),
         make_step("easy", km - 2.0 - finish, EASY_HR, eff,
@@ -327,7 +351,7 @@ def long_run(day, km, eff, finish_pace_s=None):
     if finish:
         reason = (f"Long run with a {finish:g} km goal-pace finish: endurance, plus practice holding "
                   "race pace on tired legs.")
-    return Workout(day, "long", steps, reason)
+    return Workout(day, "long", steps, reason, {"finish_km": finish})
 
 
 def tempo_run(day, km, eff, pace_s=None):
@@ -346,12 +370,13 @@ def tempo_run(day, km, eff, pace_s=None):
         main,
         make_step("cool-down", 1.0, WARMUP_HR, eff, COOLDOWN_NOTE),
     ], "Tempo because your aerobic base improved but there has been no sustained race-pace "
-       "work; teaches you to hold a strong, steady effort.")
+       "work; teaches you to hold a strong, steady effort.", {"from_target": bool(pace_s)})
 
 
 def add_fuel_note(workout):
     """Runs over FUEL_AFTER_MIN minutes get a drinking and fuelling note (Racinais 2015)."""
     if workout.minutes > FUEL_AFTER_MIN:
+        workout.info["fuel_min"] = round(workout.minutes)
         workout.reason += (f" Expected ~{workout.minutes:.0f} min: carry water with electrolytes and "
                            "take 30-60 g carbohydrate per hour. Sip, don't over-drink.")
 
@@ -369,19 +394,23 @@ def rest_day(day, runs_by_date, rest_until=None, first_day=None):
     days_after_race = (day - (rest_until - timedelta(days=safety_rules.POST_RACE_REST_DAYS))).days \
         if rest_until else None
     if first_day is not None and day < first_day:
-        note = "Before your plan starts."
+        why, note = {"rest": "before plan"}, "Before your plan starts."
     elif rest_until and 0 < days_after_race <= safety_rules.POST_RACE_REST_DAYS:
+        why = {"rest": "post race", "day": days_after_race}
         note = (f"Post-race rest (day {days_after_race} after your race). With rest, muscle damage "
                 f"clears in about 72 h; running in this window slowed recovery. Walking is fine.")
     elif yesterday and yesterday.kind in ("long", "tempo"):
+        why = {"rest": "after hard", "after": yesterday.kind}
         note = f"Rest after yesterday's {yesterday.kind} run. Optional: 20-30 min easy walk or gentle stretching."
     else:
+        why = {"rest": "normal"}
         note = "Rest day. Optional: easy walk, stretching or 15-20 min of strength exercises (squats, lunges, calf raises)."
-    return Workout(day, "rest", [], note)
+    return Workout(day, "rest", [], note, why)
 
 
 def build_plan(runs, plan_start, long_from=None, long_grow=True, runs_from=None, runs_grow=True,
-               efficiency=None, first_day=None, quality="tempo", phase=None, reference_km=None, race=None):
+               efficiency=None, first_day=None, quality="tempo", phase=None, reference_km=None, race=None,
+               quality_step=0):
     """Create one week's plan and its safety checks. Frequency first:
 
     runs_from: last week's number of runs. One run is added (up to RUNS_PER_WEEK)
@@ -392,6 +421,7 @@ def build_plan(runs, plan_start, long_from=None, long_grow=True, runs_from=None,
     efficiency: overrides the efficiency that paces are calculated from
       (used to project fitness gains into future weeks).
     quality: the hard session in a build week, "tempo" or "interval".
+    quality_step: how many of that session came before - it grows each time (see quality_km).
     phase: None, "step back", "taper" or "race week" (chosen by month_plan).
       step back  - no extra run, long run holds, distance ~STEP_BACK_SHARE of last week
       taper      - distance TAPER_SHARE[phase] of the last normal week, long run shorter
@@ -442,8 +472,8 @@ def build_plan(runs, plan_start, long_from=None, long_grow=True, runs_from=None,
     long_km = round_half(max(MIN_RUN_KM, ctx["longest_recent_km"])) if long_from is None else long_from
     if add_run and n_runs < max_runs:
         with_extra = long_km + n_runs * MIN_RUN_KM
-        if with_extra > peak:
-            note = f"no extra run: {with_extra:g} km would pass your target's peak of {peak:g} km/week"
+        if with_extra > peak and n_runs >= MIN_RUNS_AT_PEAK:
+            note = f"no extra run: {with_extra:g} km would pass the peak of {peak:g} km/week"
         elif with_extra > cap_km:
             note = f"no extra run: {with_extra:g} km would be more than 30% above the last 7 days ({last_7_km:.1f} km)"
         else:
@@ -490,7 +520,7 @@ def build_plan(runs, plan_start, long_from=None, long_grow=True, runs_from=None,
             other_km -= 0.5
         while n_runs > MIN_RUNS_AT_PEAK and long_km + (n_runs - 1) * other_km > peak + 0.25:
             n_runs -= 1
-            note = f"held at your target's peak of {peak:g} km/week"
+            note = f"held at the peak of {peak:g} km/week"
 
     # 5. Step-back and taper weeks: the easy runs share the reduced target (at least
     #    MIN_RUN_KM each); if even that is too much, drop easy runs (keep at least 3).
@@ -507,18 +537,23 @@ def build_plan(runs, plan_start, long_from=None, long_grow=True, runs_from=None,
     if phase is None:
         why += (f" {n_runs} runs ({note}), building to {max_runs} a week. Long run {long_km:g} km - it grows "
                 f"1 km a week when last week's was done, and the week always stays under +30% of the last 7 days.")
-        if peak < float("inf"):
+        if peak < float("inf") and race.get("target_time"):
             why += (f" Your target (sub {race['target_time']}) builds to about {peak:g} km/week, "
                     "then holds there.")
+        elif peak < float("inf"):
+            why += (f" Without a target the plan builds to about {peak:g} km/week - the load that "
+                    "matches your current race estimate - then holds there.")
     else:
         why += f" {n_runs} runs, long run {long_km:g} km, about {target_km:g} km in total."
 
     eff = ctx["efficiency"]
     rest_until = post_race_rest_until(ctx)
     # No runs in the first days after a race (Zhou 2026, Wang 2025), and in race
-    # week none on race day or the day before it.
+    # week none on race day, the day before it, or the rest days after it.
     race_date = pd.Timestamp(race["date"]).date() if phase == "race week" else None
-    blocked = {race_date, race_date - timedelta(days=1)} if race_date else set()
+    after_race = {race_date + timedelta(days=i) for i in range(1, safety_rules.POST_RACE_REST_DAYS + 1)} \
+        if race_date else set()
+    blocked = {race_date, race_date - timedelta(days=1)} | after_race if race_date else set()
     days = [d for d in run_days(n_runs + len(blocked), plan_start, rest_until, first_day) if d not in blocked][:n_runs]
     # The hard session (tempo or intervals): in build weeks, step-back weeks and the
     # first taper week - kept short, as tapering keeps intensity (Bosquet 2007).
@@ -537,43 +572,86 @@ def build_plan(runs, plan_start, long_from=None, long_grow=True, runs_from=None,
     # planner) - short-run paces are too optimistic for a long race in the heat. The
     # top of your tempo range is the fastest pace worth practising today.
     target_pace = goal_pace(race)
-    finish_pace, goal_note = None, None
+    finish_pace, finish_km, goal_note, goal = None, RACE_PACE_KM, None, None
     if target_pace:
         tempo_limit = pace_at_hr(eff, TEMPO_HR[1])
         easy_limit = pace_at_hr(eff, EASY_HR[1])
         estimate_pace = race["estimate_s"] / race["distance_km"] if race.get("estimate_s") else None
         label = f"Goal pace {format_pace(target_pace)}/km (sub {race['target_time']})"
         if target_pace < tempo_limit:
+            status = "too fast"
             goal_note = (f"{label} is faster than your current tempo pace ({format_pace(tempo_limit)}/km), "
                          "so no goal-pace running yet - it starts once your fitness catches up.")
         elif estimate_pace and target_pace >= estimate_pace:
+            status = "already beats"
             goal_note = (f"{label}: your race estimate ({format_pace(estimate_pace)}/km) already beats it - "
                          "consider a faster target.")
         elif target_pace >= easy_limit:
+            status = "within easy"
             goal_note = (f"{label} is within easy effort on your shorter runs - what is missing is holding it "
                          f"for {race['distance_km']:g} km, so the long runs (growing to {long_run_max(race):g} km) "
                          "are your key sessions.")
         else:
+            status = "finish"
             goal_note = f"{label}: build-week long runs end with {RACE_PACE_KM:g} km at that pace."
+        # A goal-pace finish above easy heart rate is a hard session in itself, and a week
+        # has one: it takes the tempo slot (no separate tempo run), and interval weeks keep
+        # a plain long run. So goal pace comes every other build week.
+        goal_hard = status == "finish" and race_pace_step(RACE_PACE_KM, target_pace, eff).hr_max > EASY_HR[1]
+        if goal_hard:
+            goal_note = (f"{label}: every other build week the long run ends with {RACE_PACE_KM:g} km at that "
+                         "pace. It is hard enough to be that week's hard session, so it takes the tempo run's place.")
+        goal = {"status": status, "pace_s": target_pace, "tempo_limit_s": tempo_limit, "every_other": goal_hard,
+                "estimate_pace_s": estimate_pace, "long_max_km": long_run_max(race), "finish_km": RACE_PACE_KM}
         # Practise goal pace only when it is faster than easy and not beyond your tempo range.
-        if tempo_limit <= target_pace < easy_limit and week_type in ("build", "taper"):
+        finish_km = RACE_PACE_KM
+        if status == "finish" and week_type in ("build", "taper") and (not goal_hard or quality == "tempo"):
             finish_pace = target_pace
+            if goal_hard:   # it is the week's hard session, so it grows like a tempo block
+                finish_km = min(RACE_PACE_MAX_KM, RACE_PACE_KM + RACE_PACE_STEP_KM * quality_step)
+                quality_day = None
+        goal["finish_km"] = finish_km
 
     # Tempo and interval paces from the target, within what you can do today.
     session_paces = target_session_paces(race, eff)
+    if goal:
+        goal["session_paces"] = session_paces
     if session_paces and goal_note:
         goal_note += (f" Sessions at target-based paces: tempo {format_pace(session_paces['tempo'])}/km, "
                       f"800 m repeats {format_pace(session_paces['interval'])}/km"
                       + (f" ({'; '.join(session_paces['notes'])})" if session_paces["notes"] else "") + ".")
 
+    # The hard session grows each time (quality_km) and takes the extra distance from the
+    # easy runs, which stay at least MIN_RUN_KM. In a normal week it may then add a little
+    # to the week, never past +30% of the last 7 days; step-back and taper weeks stay within theirs.
+    session_km, reps, step_used = other_km, None, None
+    if goal and goal["every_other"] and finish_pace:
+        step_used = quality_step   # the goal-pace finish took the tempo slot and grew with it
+    if quality_day:
+        n_easy = sum(d.weekday() != LONG_RUN_DAY and d != quality_day for d in days)
+        budget = target_km - long_km                      # km for the easy runs and the hard session
+        room = budget - n_easy * MIN_RUN_KM
+        if phase is None:
+            room = max(room, cap_km - long_km - n_easy * MIN_RUN_KM)
+        step = quality_step
+        while step > 0 and quality_km(quality, step) > max(room, other_km) + 0.01:
+            step -= 1
+        if quality_km(quality, step) > other_km:
+            session_km = quality_km(quality, step)
+            if n_easy:
+                other_km = max(MIN_RUN_KM, math.floor(2 * (budget - session_km) / n_easy) / 2)
+        if quality == "interval":
+            reps = min(INTERVAL_MAX_REPS, INTERVAL_START_REPS + step)
+        step_used = step
+
     workouts = []
     for day in days:
         if day.weekday() == LONG_RUN_DAY:
-            workouts.append(long_run(day, long_km, eff, finish_pace))
+            workouts.append(long_run(day, long_km, eff, finish_pace, finish_km))
         elif day == quality_day:
-            workouts.append(tempo_run(day, other_km, eff, session_paces and session_paces["tempo"])
+            workouts.append(tempo_run(day, session_km, eff, session_paces and session_paces["tempo"])
                             if quality == "tempo" else
-                            interval_run(day, other_km, eff, session_paces and session_paces["interval"]))
+                            interval_run(day, session_km, eff, session_paces and session_paces["interval"], reps))
         else:
             workouts.append(easy_run(day, other_km, eff, strides=day == strides_day))
     for workout in workouts:
@@ -588,6 +666,12 @@ def build_plan(runs, plan_start, long_from=None, long_grow=True, runs_from=None,
                                                 f"target {race['target_time']}. Start easy, fuel and drink early.")
             elif day.day == race_date - timedelta(days=1):
                 day.reason = "Rest before the race. Short walk, lay out your kit, eat and sleep well."
+                day.info = {"rest": "before race"}
+            elif day.day in after_race:
+                after = (day.day - race_date).days
+                day.reason = (f"Post-race rest (day {after} after your race). With rest, muscle damage clears "
+                              "in about 72 h. Walking is fine.")
+                day.info = {"rest": "post race", "day": after}
 
     planned_km = sum(w.distance_km for w in workouts)
     planned_long_km = next((w.distance_km for w in workouts if w.kind == "long"), 0.0)
@@ -611,7 +695,10 @@ def build_plan(runs, plan_start, long_from=None, long_grow=True, runs_from=None,
         "long_km": long_km,
         "n_runs": n_runs,
         "goal_note": goal_note,
+        "goal": goal,
+        "peak_km": None if peak == float("inf") else peak,
         "quality": quality,
+        "quality_step": step_used,   # the step of progression the hard session was planned at
         "workouts": workouts,
         "days": week,
         "checks": checks,

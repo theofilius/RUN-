@@ -18,6 +18,8 @@ How it works:
   7. Every STEP_BACK_EVERY-th week is a step-back week (~25% less). The week after
      it returns to the level before it.
   8. With a GOAL_RACE date: the 2 weeks before it are a taper (Bosquet 2007).
+     The weekly distance builds to a peak and holds: the target's, or without a
+     target the one that matches today's race estimate.
   9. Finished weeks are frozen (with plans_dir): while a week is running, its
      plan is saved every time it is built, so a new target still changes it.
      Once the week is over, that last saved version is used from then on -
@@ -197,12 +199,19 @@ def build_month_plan(runs, covered_until, plan_start=PLAN_START, today=None, wee
     long_from, long_grow = None, True
     runs_from, runs_grow = None, True
     last_quality = None   # build weeks alternate tempo and intervals, starting with tempo
+    sessions = {"tempo": 0, "interval": 0}   # the step each hard session is at next: it grows each time
     race_date = pd.Timestamp(goal_race["date"]) if goal_race and goal_race.get("date") else None
     # Today's race estimate, so goal pace is judged against race fitness, not short runs.
+    # The peak weekly distance: from the target, or without one from today's estimate
+    # (the load that matches your current level), so the plan never grows without end.
     if goal_race and goal_race.get("target_time"):
         gap = goal_gap(real, goal_race, gain, today)
         goal_race = {**goal_race, "estimate_s": gap["estimate_now_s"] if gap else None,
                      "peak_km": peak_km(goal_race["distance_km"], parse_time(goal_race["target_time"]))}
+    elif goal_race:
+        gap = goal_gap(real, goal_race, gain, today)
+        if gap:
+            goal_race = {**goal_race, "peak_km": peak_km(goal_race["distance_km"], gap["estimate_now_s"])}
     steady_km = steady_runs = None   # the last normal week (not step-back or taper)
     prev_phase = None
     for k in range(current + weeks_ahead):
@@ -222,6 +231,9 @@ def build_month_plan(runs, covered_until, plan_start=PLAN_START, today=None, wee
         efficiency = None if status == "done" else base_eff * (1 + gain) ** weeks_past_data
 
         ended = end <= today
+        quality = "interval" if last_quality == "tempo" else "tempo"
+        # Lighter weeks repeat an easier version of the session instead of growing it.
+        step = sessions[quality] if phase is None else max(0, sessions[quality] - 1)
         plan = load_frozen(plans_dir, start, first_day) if plans_dir and ended else None
         if plan is not None:
             plan["frozen"] = True
@@ -229,8 +241,8 @@ def build_month_plan(runs, covered_until, plan_start=PLAN_START, today=None, wee
             plan = build_plan(known, start, long_from=long_from, long_grow=long_grow,
                               runs_from=runs_from, runs_grow=runs_grow, efficiency=efficiency,
                               first_day=first_day.date() if k == 0 else None,
-                              quality="interval" if last_quality == "tempo" else "tempo",
-                              phase=phase, reference_km=reference, race=goal_race)
+                              quality=quality, phase=phase, reference_km=reference, race=goal_race,
+                              quality_step=step)
             plan["pace_note"] = (
                 "Paces from your real runs before this week." if efficiency is None else
                 f"Paces from your latest runs (up to {data_end - pd.Timedelta(days=1):%d %b})"
@@ -242,6 +254,10 @@ def build_month_plan(runs, covered_until, plan_start=PLAN_START, today=None, wee
             if plans_dir and (ended or status == "current"):
                 save_frozen(plans_dir, start, first_day, plan)
         last_quality = plan["quality"] or last_quality
+        # The next session is one step up from the one this normal week actually had (a
+        # goal-pace long run in the tempo slot counts too); lighter weeks leave it as it is.
+        if phase is None and plan.get("quality_step") is not None:
+            sessions[plan["quality"]] = plan["quality_step"] + 1
         actual_phase = phase if plan["week_type"] in ("step back", "taper", "race week") else None
         if actual_phase is None:
             steady_km, steady_runs = sum(w.distance_km for w in plan["workouts"]), plan["n_runs"]
@@ -268,7 +284,9 @@ def build_month_plan(runs, covered_until, plan_start=PLAN_START, today=None, wee
 
 
 def current_week(weeks):
-    return next((w for w in weeks if w["status"] == "current"), weeks[-1])
+    """This week; before the plan starts its first week, after it ends its last."""
+    return next((w for w in weeks if w["status"] == "current"),
+                next((w for w in weeks if w["status"] == "upcoming"), weeks[-1]))
 
 
 def print_month(weeks, covered_until):

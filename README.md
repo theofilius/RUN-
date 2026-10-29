@@ -27,13 +27,14 @@ The app shows the formula and the data behind every number it gives.
 | **Easy-run honesty check** | Weekly easy vs hard time against an 80/20 target, plus runs you *called* easy whose heart rate says otherwise |
 | **Heat-adjusted pace** | Real air temperature and dew point for each run (from Open-Meteo), converted to an expected slowdown |
 | **Training plan** | A rolling month plan (Monday–Sunday weeks) re-planned every week from your latest data, with a planned-vs-actual evaluation of each finished week. A finished week is frozen as you last saw it, so later changes to the goal or the rules never rewrite the plan it is judged against. Each day is a menu: rest, or warm-up / main / cool-down with distance, heart-rate range, pace range, time and how to run it, plus a reason and visible safety checks |
+| **Training programs** | Save what you train for (distance, "sub" target, race date, start), as many as you like, one active. Each program has its own page: the goal in plain words, a month-by-month calendar from start to race (tap a day for its menu and what you actually ran), every week and the build-up chart. Programs keep adapting to your runs; finished weeks stay frozen per program |
 | **Goal planner** | Pick a distance and a "sub" target from a dropdown built from your current estimate. Each option shows the weeks needed at your own rate. The plan adapts: goal-pace finishes on long runs when the pace is within reach, a long-run ceiling for the distance, and a taper once you set a race date |
 | **Taper and step-back weeks** | A 2-week taper before your goal race, and a lighter week every 4th week |
 | **`.fit` workout export** | Turns planned runs into Garmin workout files you copy to your watch |
 | **Weather & air quality** | Sidebar forecast for your city: now, the next hours and your usual run time (Open-Meteo, info only) |
 | **Garmin Connect sync (optional)** | With a free Garmin Personal API key, runs come straight from Garmin Connect, including your full history, with no CSV export. The dashboard syncs by itself every hour or on **Sync now** |
 | **Per-second heart rate** | The easy-run check counts actual seconds at easy HR from activity `.fit` files in `data/activities/`. The Garmin sync downloads them for the last 12 weeks; you can also add them by hand |
-| **Dashboard** | All of the above in a local Streamlit app, with charts, tables and "How is this calculated?" boxes |
+| **Dashboard** | A local Streamlit app in English or Indonesian (⋮ → Settings → Language). It opens on today's run in plain words, then shows the week (done / missed / today), your goal and build-up, the coming weeks, a one-line safety summary, and charts for races, fitness, easy vs hard and heat. Formulas and sources sit behind "Technical details" and "How is this calculated?" |
 
 ---
 
@@ -147,7 +148,7 @@ Third-party apps cannot write into Garmin Coach, and pushing workouts through
 Garmin's API needs a business account. Instead, this project writes standard
 `.fit` workout files:
 
-1. Download the files from the dashboard's **Training plan** tab, or run `python -m src.export.fit_workout`.
+1. Run `python -m src.export.fit_workout` (the dashboard no longer offers the files).
 2. Connect the watch over USB and copy the files into **`GARMIN/NewFiles`**.
 3. Unplug the watch. The workouts appear under **Training → Workouts**.
 
@@ -238,6 +239,7 @@ src/
   evidence.py             the papers behind each rule, with DOIs
   units.py                seconds ↔ "m:ss" / "h:mm:ss"
   env.py                  API keys from the environment or .env
+  programs.py             saved training programs (data/programs.json), one active
   loaders/
     csv_garmin.py         Garmin CSV → clean table (numbers, seconds, km)
     garmin_api.py         Garmin Personal API sync → the same table (needs GARMIN_API_KEY in .env)
@@ -261,6 +263,7 @@ src/
     fit_workout.py        workouts → Garmin .fit files
 app/
   dashboard.py            Streamlit dashboard (draws only; all numbers come from src/)
+  i18n.py                 every sentence of the dashboard, in English and Indonesian
   assets/refresh.png      refresh icon
 tests/                    pytest suite on synthetic data
 ```

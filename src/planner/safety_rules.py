@@ -26,8 +26,11 @@ RECOVERY_DAYS = 14          # no hard sessions this many days after a half marat
 POST_RACE_REST_DAYS = 3     # Zhou 2026: muscle damage clears in ~72 h with rest, slower if running
 
 
-def result(rule, level, detail, formula, sources):
+def result(rule, level, detail, formula, sources, key=None, values=None):
+    """key and values describe the check as data, so the dashboard can word it in any language."""
     return {
+        "key": key,
+        "values": values or {},
         "rule": rule,
         "level": level,
         "passed": level in ("pass", "info"),
@@ -52,6 +55,7 @@ def check_weekly_increase(planned_km, baseline_km):
         "a 10%-rule trial did not reduce injuries, and 10-30% was no riskier than <10%.",
         "limit = average km/week over the last 4 weeks x 1.10",
         ["own", "buist2008", "nielsen2014"],
+        "weekly 10%", {"planned_km": planned_km, "limit_km": limit},
     )
 
 
@@ -70,7 +74,7 @@ def check_two_week_increase(planned_km, runs, plan_start, reference_km=None):
             rule, "info",
             "No runs in the last 7 days, so the change cannot be calculated. The research says nothing "
             "about returning after a break - restart with short, easy runs.",
-            formula, ["nielsen2014"],
+            formula, ["nielsen2014"], "two-week 30%", {"no_recent_runs": True},
         )
     change = planned_km / last_7_km - 1
     return result(
@@ -78,6 +82,7 @@ def check_two_week_increase(planned_km, runs, plan_start, reference_km=None):
         "pass" if change <= MAX_2WEEK_INCREASE else "high",
         f"{planned_km:.1f} km planned vs {last_7_km:.1f} km in the last 7 days ({change:+.0%})",
         formula, ["nielsen2014"],
+        "two-week 30%", {"planned_km": planned_km, "last_km": last_7_km, "change": change},
     )
 
 
@@ -91,7 +96,7 @@ def check_rising_weeks(planned_km, runs, plan_start):
         "caution" if rising else "pass",
         " -> ".join(f"{km:.1f}" for km in weeks) + " km (last weeks -> planned)",
         f"caution if each of the last {MAX_RISING_WEEKS} weeks (incl. planned) is higher than the one before",
-        ["nielsen2014"],
+        ["nielsen2014"], "rising weeks", {"weeks_km": weeks},
     )
 
 
@@ -102,7 +107,7 @@ def check_long_run(long_km, longest_recent_km):
         "pass" if long_km <= limit else "high",
         f"{long_km:.1f} km planned, longest training run in last 4 weeks {longest_recent_km:.1f} km",
         f"limit = longest recent run + {MAX_LONG_RUN_STEP_KM} km (races not counted)",
-        ["own", "fokkema2020"],
+        ["own", "fokkema2020"], "long run step", {"long_km": long_km, "longest_km": longest_recent_km},
     )
 
 
@@ -114,7 +119,7 @@ def check_no_hard_after_race(workouts, days_since_race):
         "high" if too_soon and hard else "pass",
         f"last race {days_since_race} days before this week, {len(hard)} hard session(s) planned",
         f"hard sessions allowed only when days since race >= {RECOVERY_DAYS}",
-        ["own"],
+        ["own"], "hard after race", {"days_since_race": days_since_race, "hard": len(hard)},
     )
 
 
@@ -123,7 +128,8 @@ def check_post_race_rest(workouts, last_race):
     rule = f"No runs in the first {POST_RACE_REST_DAYS} days after a race"
     formula = f"rest on race day + 1 ... race day + {POST_RACE_REST_DAYS}"
     if last_race is None:
-        return result(rule, "pass", "no race before this plan", formula, ["zhou2026", "wang2025"])
+        return result(rule, "pass", "no race before this plan", formula, ["zhou2026", "wang2025"],
+                      "post-race rest")
     race_day = last_race.date()
     too_soon = [w for w in workouts if 0 < (w.day - race_day).days <= POST_RACE_REST_DAYS]
     return result(
@@ -131,7 +137,7 @@ def check_post_race_rest(workouts, last_race):
         "high" if too_soon else "pass",
         f"race on {race_day:%a %d %b}; {len(too_soon)} run(s) planned in the {POST_RACE_REST_DAYS} days after",
         formula,
-        ["zhou2026", "wang2025"],
+        ["zhou2026", "wang2025"], "post-race rest", {"runs_too_soon": len(too_soon)},
     )
 
 
@@ -158,15 +164,20 @@ def weekly_acwr(runs, until, planned_km=None):
 
 
 def check_load_spikes(runs, plan_start, planned_km, weeks=6):
-    """Flag recent and planned weeks whose acute:chronic ratio is high."""
+    """Judge the planned week's acute:chronic ratio; recent spikes are listed for context.
+
+    Only the planned week sets the level - a spike weeks ago is history, not
+    something this plan can still change.
+    """
     table = weekly_acwr(runs, plan_start - pd.Timedelta(days=1), planned_km).tail(weeks + 1)
     counted = table[table["km"] >= MIN_SPIKE_KM]
-    worst = counted["acwr"].max()
+    planned = table.iloc[-1]
+    ratio = planned["acwr"] if planned["km"] >= MIN_SPIKE_KM else None
 
     level = "pass"
-    if worst >= ACWR_HIGH:
+    if ratio is not None and ratio >= ACWR_HIGH:
         level = "high"
-    elif worst >= ACWR_CAUTION:
+    elif ratio is not None and ratio >= ACWR_CAUTION:
         level = "caution"
 
     flagged = counted[counted["acwr"] >= ACWR_CAUTION]
@@ -177,10 +188,13 @@ def check_load_spikes(runs, plan_start, planned_km, weeks=6):
         for p, r in flagged.iterrows()
     )
     return result(
-        f"Acute:chronic load below {ACWR_CAUTION} (caution) / {ACWR_HIGH} (high), last {weeks} weeks + plan",
+        f"Acute:chronic load of the planned week below {ACWR_CAUTION} (caution) / {ACWR_HIGH} (high); "
+        f"spikes in the last {weeks} weeks listed",
         level,
         (detail or "none") + ". Weak evidence for runners - treat as a warning sign, not a rule.",
         f"ratio = km this week / average km per week over the 3 weeks before it "
         f"(weeks under {MIN_SPIKE_KM} km ignored)",
         ["cloosterman2024", "windt2019"],
+        "load spike", {"ratio": None if ratio is None or pd.isna(ratio) else float(ratio),
+                       "usual_km": None if pd.isna(planned["chronic_km"]) else float(planned["chronic_km"])},
     )
