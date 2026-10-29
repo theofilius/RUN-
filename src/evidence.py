@@ -94,6 +94,17 @@ SOURCES = {
         "finding": "Elite distance runners train mostly easy (pyramidal), with regular threshold (tempo) "
                    "and interval sessions and at least 3 easy days a week.",
     },
+    "bosquet2007": {
+        "cite": "Bosquet et al. 2007, Med Sci Sports Exerc 39(8):1358-1365",
+        "doi": "10.1249/mss.0b013e31806010e0",
+        "finding": "Taper meta-analysis: about 2 weeks, training volume cut 41-60%, intensity and "
+                   "frequency kept, gave the largest performance gains (competitive athletes).",
+    },
+    "riegel1981": {
+        "cite": "Riegel 1981, American Scientist 69:285-290",
+        "doi": None,
+        "finding": "Race time scales with distance as T2 = T1 x (D2 / D1)^1.06 across endurance events.",
+    },
     "own": {
         "cite": "Planner default",
         "doi": None,

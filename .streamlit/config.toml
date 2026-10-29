@@ -1,8 +1,12 @@
-# Chart colours are validated for the light theme only, so pin it.
+# Palette: paper #EEEBE3, red #f01e2c, black. Charts use black + red, checked
+# for colour-blind separation on this background.
 [theme]
 base = "light"
-backgroundColor = "#fcfcfb"
-secondaryBackgroundColor = "#f0efec"
-textColor = "#0b0b0b"
-primaryColor = "#2a78d6"
+backgroundColor = "#EEEBE3"
+secondaryBackgroundColor = "#E3DFD4"
+textColor = "#000000"
+primaryColor = "#f01e2c"
 font = "sans serif"
+
+[client]
+toolbarMode = "viewer"

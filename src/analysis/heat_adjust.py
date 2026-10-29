@@ -27,6 +27,8 @@ import numpy as np
 import pandas as pd
 
 from src.loaders.csv_garmin import load_garmin_csv
+from src.loaders.fit_activities import ACTIVITY_DIR, add_time_in_zones
+from src.loaders.garmin_api import load_api_runs
 from src.loaders.weather_openmeteo import city_for_title, load_weather
 
 # (temp F + dew point F, slowdown %) - the full lookup table.
@@ -69,19 +71,30 @@ def add_heat_adjustment(runs, weather):
     return adjusted
 
 
+def add_conditions(runs, data_dir):
+    """Weather and heat columns (weather cached in data_dir), plus time-in-zone
+    columns for runs with an activity .fit in data_dir/activities/."""
+    data_dir = Path(data_dir)
+    weather = load_weather(runs, data_dir / "weather_cache.csv")
+    return add_time_in_zones(add_heat_adjustment(runs, weather), data_dir / ACTIVITY_DIR)
+
+
 def load_runs_with_heat(csv_path):
-    """Garmin runs plus weather and heat columns; weather cached next to the CSV."""
+    """Garmin CSV runs plus weather, heat and (if available) time-in-zone columns."""
     csv_path = Path(csv_path)
-    runs = load_garmin_csv(csv_path)
-    weather = load_weather(runs, csv_path.parent / "weather_cache.csv")
-    return add_heat_adjustment(runs, weather)
+    return add_conditions(load_garmin_csv(csv_path), csv_path.parent)
+
+
+def load_api_runs_with_heat(data_dir):
+    """The same, for runs from the last Garmin API sync (see loaders/garmin_api.py)."""
+    return add_conditions(load_api_runs(data_dir), data_dir)
 
 
 if __name__ == "__main__":
     # python -m src.analysis.heat_adjust "data/Running Data may-oct.csv"
     import sys
 
-    from src.config import RACES
+    from src.analysis.races import race_list
     from src.units import format_pace
 
     adjusted = load_runs_with_heat(sys.argv[1])
@@ -101,9 +114,9 @@ if __name__ == "__main__":
     print("HEAT-ADJUSTED PACE PER RUN\n")
     print(shown.to_string(index=False))
 
-    race_starts = pd.to_datetime([race["start"] for race in RACES.values()])
     print("\nRACES")
-    for name, (_, race) in zip(RACES, adjusted[adjusted["start_time"].isin(race_starts)].iterrows()):
+    for name, info in race_list(adjusted).items():
+        race = adjusted[adjusted["start_time"] == pd.Timestamp(info["start"])].iloc[0]
         print(f"  {name:<28} {format_pace(race['avg_pace_s_per_km'])}/km actual, "
               f"{format_pace(race['heat_adj_pace_s'])}/km heat-adjusted "
               f"(air {race['air_temp_c']:.1f} C, dew point {race['dew_point_c']:.1f} C, "

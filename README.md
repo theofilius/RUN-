@@ -22,12 +22,17 @@ The app shows the formula and the data behind every number it gives.
 
 | Feature | What it tells you |
 |---|---|
-| **Race post-mortem** | Compares the weeks before two races: volume, runs per week, longest run, average HR, easy share, efficiency, heat |
+| **Race post-mortem** | Compares the weeks before your last two races: volume, runs per week, longest run, average HR, easy share, efficiency, heat |
 | **Aerobic fitness trend** | Estimated pace at a fixed heart rate (e.g. pace @ 160 bpm) per run and per month |
 | **Easy-run honesty check** | Weekly easy vs hard time against an 80/20 target, plus runs you *called* easy whose heart rate says otherwise |
 | **Heat-adjusted pace** | Real air temperature and dew point for each run (from Open-Meteo), converted to an expected slowdown |
-| **Next-week planner** | A 7-day menu from your data: rest days plus runs split into warm-up / main / cool-down, each step with distance, heart-rate range, pace range, estimated time and how to run it. Every run has a reason, and the week runs visible safety checks |
+| **Training plan** | A rolling month plan (Monday–Sunday weeks) re-planned every week from your latest data, with a planned-vs-actual evaluation of each finished week. A finished week is frozen as you last saw it, so later changes to the goal or the rules never rewrite the plan it is judged against. Each day is a menu: rest, or warm-up / main / cool-down with distance, heart-rate range, pace range, time and how to run it, plus a reason and visible safety checks |
+| **Goal planner** | Pick a distance and a "sub" target from a dropdown built from your current estimate. Each option shows the weeks needed at your own rate. The plan adapts: goal-pace finishes on long runs when the pace is within reach, a long-run ceiling for the distance, and a taper once you set a race date |
+| **Taper and step-back weeks** | A 2-week taper before your goal race, and a lighter week every 4th week |
 | **`.fit` workout export** | Turns planned runs into Garmin workout files you copy to your watch |
+| **Weather & air quality** | Sidebar forecast for your city: now, the next hours and your usual run time (Open-Meteo, info only) |
+| **Garmin Connect sync (optional)** | With a free Garmin Personal API key, runs come straight from Garmin Connect, including your full history, with no CSV export. The dashboard syncs by itself every hour or on **Sync now** |
+| **Per-second heart rate** | The easy-run check counts actual seconds at easy HR from activity `.fit` files in `data/activities/`. The Garmin sync downloads them for the last 12 weeks; you can also add them by hand |
 | **Dashboard** | All of the above in a local Streamlit app, with charts, tables and "How is this calculated?" boxes |
 
 ---
@@ -42,7 +47,24 @@ cd RUN-
 pip install -r requirements.txt
 ```
 
-### 1. Export your runs from Garmin Connect
+### 1. Get your runs
+
+**Option A: Garmin Personal API (recommended).** This option is free for your own data and read-only.
+
+1. On Garmin Connect web, open **Settings → Personal API Token** and create a key.
+2. Create a file called `.env` in the project folder, next to `README.md`, with this line:
+   ```
+   GARMIN_API_KEY=your-key
+   GARMIN_API_KEY_EXPIRES=2027-04-27   # optional: the expiry you chose; the dashboard warns 14 days before
+   ```
+   `.env` is in `.gitignore`, so the key is never committed. Never paste it anywhere else.
+3. Run a first sync. It downloads everything, plus `.fit` files for the last 12 weeks, in about a minute:
+   ```bash
+   python -m src.loaders.garmin_api
+   ```
+   Reading new `.fit` files takes a few seconds each, once; the results are then cached. After that, the dashboard keeps itself up to date.
+
+**Option B: CSV export.**
 
 1. Open **connect.garmin.com** in a browser. The mobile app cannot export.
 2. Go to **Activities → All Activities**.
@@ -58,13 +80,29 @@ Edit [`src/config.py`](src/config.py):
 
 ```python
 MAX_HR = 196                    # your max heart rate
-RACES = {                       # races to compare (start time as on the watch)
+RACES = {                       # extra races (start time as on the watch) - see below
     "Race A": {"start": "2026-06-14 04:51:01", "distance_km": 21.1},
     "Race B": {"start": "2026-10-24 04:41:22", "distance_km": 21.1},
 }
+PLAN_START = "2026-10-28"       # the day your plan starts (weeks run Monday-Sunday)
+RUNS_PER_WEEK = 6               # your target; START_RUNS_PER_WEEK is week 1
+WEEKLY_GROWTH = 0.15            # distance growth once the target number of runs is reached
+STEP_BACK_EVERY = 4             # every 4th week is lighter (0 = off)
+# Your goal (distance, "sub" target, race date) is chosen in the dashboard and
+# saved to data/goal.json; GOAL_RACE here is only the default.
 LONG_RUN_DAY = 5                # 0 = Monday ... 6 = Sunday
-OTHER_RUN_DAYS = [1, 3, 4, 0]   # preferred days for other runs
+OTHER_RUN_DAYS = [1, 3, 0, 4, 2]   # preferred days for the other runs, in order
+HOME_CITY = "Jakarta"           # weather and air-quality forecast
+RUN_HOURS = (19, 21)            # when you usually run
 ```
+
+**Races.** With the Garmin sync, set **Event Type → Race** on a race activity in Garmin Connect and it is
+picked up by itself: recovery days after it, left out of training trends, and used for the goal estimate.
+`RACES` is for CSV data, which has no event type, or for giving a race a short name. Both work together.
+
+With the CSV option, you can add activity `.fit` files to `data/activities/` yourself for
+per-second heart-rate analysis (Garmin Connect web → an activity → gear icon →
+**Export Original**, then unzip). The API sync does this for you.
 
 ### 3. Open the dashboard
 
@@ -90,6 +128,17 @@ python -m src.planner.plan_generator   "$CSV" 2026-11-09   # a single week start
 python -m src.export.fit_workout       "$CSV"              # this week's runs -> exports/week-.../*.fit
 ```
 
+### Run the tests
+
+```bash
+python -m pytest
+```
+
+The tests use synthetic runs, so they need neither your CSV nor internet. They
+check the planner's safety rules (never more than +30% a week, the long run
+never goes down, at most one extra run a week, 3 rest days after a race, the
+taper), the `.fit` files, the analysis helpers, and the Garmin sync (against a fake Garmin).
+
 ---
 
 ## Putting workouts on your watch
@@ -98,15 +147,21 @@ Third-party apps cannot write into Garmin Coach, and pushing workouts through
 Garmin's API needs a business account. Instead, this project writes standard
 `.fit` workout files:
 
-1. Download the files from the dashboard's **Next week** tab, or run `python -m src.export.fit_workout`.
+1. Download the files from the dashboard's **Training plan** tab, or run `python -m src.export.fit_workout`.
 2. Connect the watch over USB and copy the files into **`GARMIN/NewFiles`**.
 3. Unplug the watch. The workouts appear under **Training → Workouts**.
 
 Each step is a distance with a heart-rate range, and the watch alerts you when
-your HR leaves it.
+your HR leaves it. Interval repeats target **pace** instead, because heart rate
+rises too slowly on short efforts. Step names carry the pace range (for example
+`Easy 8:11-9:23`).
 
-On macOS, many newer Garmin watches connect over MTP and don't show up in
-Finder. Use [OpenMTP](https://openmtp.ganeshrvel.com/) to copy the files.
+On macOS, many newer Garmin watches (for example the Forerunner 165) connect
+over MTP and don't show up in Finder. Use
+[OpenMTP](https://openmtp.ganeshrvel.com/) to copy the files.
+
+Garmin Connect web cannot import workout `.fit` files. Its Import only accepts
+activities, so the USB route is the way in.
 
 ---
 
@@ -117,7 +172,10 @@ Finder. Use [OpenMTP](https://openmtp.ganeshrvel.com/) to copy the files.
 | Efficiency | (distance m ÷ moving minutes) ÷ average HR. Higher means fitter |
 | Pace @ reference HR | 1000 ÷ (efficiency × reference HR) minutes per km |
 | Easy run | average HR ≤ 80% of max HR (configurable) |
-| Easy % | moving time of easy runs ÷ total moving time, per Monday–Sunday week |
+| Easy % | easy moving time ÷ total moving time, per Monday–Sunday week. Per second where an activity `.fit` exists, otherwise by each run's average HR |
+| Goal estimate | last race × (goal km ÷ race km)^1.06 (Riegel) × (efficiency before that race ÷ efficiency now) |
+| Weeks to goal | ln(estimate ÷ target) ÷ ln(1 + your weekly fitness gain) |
+| Air quality | US AQI. Open-Meteo model (CAMS), or IQAir measured now plus a 48 h correction if you add an IQAir key |
 | Heat slowdown | air temp °F + dew point °F, looked up in a runner's rule-of-thumb table (0% at 100 → 10% at 180) |
 | Heat-adjusted pace | pace ÷ (1 + slowdown %) |
 | Acute:chronic load | km this week ÷ average km/week over the 3 weeks *before* it (uncoupled) |
@@ -130,27 +188,41 @@ city coordinates and dates are sent, and the results are cached in
 
 ### Planner rules
 
-The planner checks these rules in order and uses the first one that matches:
+**Week type** (the first rule that matches):
 
-1. **A race in the last 14 days** → *recovery week*: all easy, no extra distance.
-2. **Easy time under 50%** → *fix-easy week*: distance holds, every run capped at the easy HR.
-3. **An injury in the last 12 months** (`INJURED_LAST_12_MONTHS` in `config.py`) → *build week* with distance held flat.
-4. **Otherwise** → *build week*: +10% distance and one tempo run.
+1. **A race in the last 14 days** → *recovery*: every run easy.
+2. **Easy time under 50%** → *fix easy*: every run easy.
+3. **Otherwise** → *build*: one hard session a week, tempo and intervals in turn.
 
-The planned distance never goes more than 30% above the last 7 days. The long
-run is at most half the week and grows by at most 1.5 km.
+The month plan can also set a **phase**:
+- every 4th week is a *step back*
+- the 2 weeks before `GOAL_RACE` are *taper* and *race week*
+
+**How the week is built (frequency first):**
+
+- **Runs:** week 1 has `START_RUNS_PER_WEEK`. After that, one run of 5 km or more is added each week, up to `RUNS_PER_WEEK`. No run is added if more than one run was missed last week, after an injury, or if it would break the 30% limit.
+- **Long run:** starts from your recent longest run and never goes down. It grows +1 km a week when last week's reached 90% of plan and it fits the 30% limit. Only a taper shortens it. Maximum 21 km.
+- **Growth:** once you reach the target number of runs, weekly distance grows by `WEEKLY_GROWTH`, shared by the easy runs.
+- **30% limit:** every week stays under +30% of the last 7 days. After a step-back week, it's measured from the week before the step-back.
+- **Step-back week:** no extra run, the long run holds, and distance drops about 25% (easy runs get shorter first, then one is dropped).
+- **Taper:** 70% of a normal week, then 50% in race week. Runs stay frequent and some faster running is kept. No runs on race day or the day before.
+- **After any race:** 3 rest days, then recovery weeks. Strides start from day 7.
+- **Intervals:** 3–6 × 800 m, as many as fit the run's distance, with 400 m jogs.
+- **Paces:** from your own efficiency, projected forward at your recent fitness gain (at most 1% a week).
 
 Every plan shows these checks, each with a level (pass / note / caution / high)
 and its source:
 
 | Check | Evidence |
 |---|---|
+| No runs in the 3 days after a race | Zhou et al. 2026, doi:10.1186/s13102-026-01640-w; Wang et al. 2025, doi:10.1186/s40798-025-00824-x |
 | Planned week ≤ last 7 days + 30% | Nielsen et al. 2014, doi:10.2519/jospt.2014.5164 |
-| Weekly distance ≤ 4-week average + 10% | Cautious default. A 10%-rule trial did not reduce injuries (Buist et al. 2008, doi:10.1177/0363546507307505) |
+| Weekly distance ≤ 4-week average + 10% | Cautious default, shown as caution only. A 10%-rule trial did not reduce injuries (Buist et al. 2008, doi:10.1177/0363546507307505) |
 | Distance not rising 3 weeks in a row | Nielsen et al. 2014 (discussion) |
 | Long run ≤ recent longest + 1.5 km | Planner default; Fokkema et al. 2020 links longer long runs to faster times (doi:10.1111/sms.13725) |
 | No hard sessions within 14 days of a race | Planner default |
 | Acute:chronic ratio: caution ≥ 1.3, high ≥ 1.5 | Cloosterman et al. 2024, doi:10.4085/1062-6050-0430.23. Weak evidence for runners |
+| Taper: about 2 weeks, volume −41–60% | Bosquet et al. 2007, doi:10.1249/mss.0b013e31806010e0 |
 
 All sources are listed in [`src/evidence.py`](src/evidence.py).
 
@@ -159,48 +231,65 @@ All sources are listed in [`src/evidence.py`](src/evidence.py).
 ## Project structure
 
 ```
-data/                     your Garmin export + weather cache (gitignored)
+data/                     your Garmin data, caches, activities/, frozen weeks in plans/ (gitignored)
 exports/                  generated .fit files (gitignored)
 src/
-  config.py               personal settings: max HR, races, run days
+  config.py               personal settings: max HR, races, goal race, run days, plan
+  evidence.py             the papers behind each rule, with DOIs
   units.py                seconds ↔ "m:ss" / "h:mm:ss"
+  env.py                  API keys from the environment or .env
   loaders/
     csv_garmin.py         Garmin CSV → clean table (numbers, seconds, km)
-    weather_openmeteo.py  hourly air temp + dew point, cached
+    garmin_api.py         Garmin Personal API sync → the same table (needs GARMIN_API_KEY in .env)
+    fit_activities.py     optional per-second HR from activity .fit files
+    weather_openmeteo.py  hourly air temp + dew point for past runs, cached
+    forecast_openmeteo.py weather + air-quality forecast, cached
+    iqair.py              optional measured AQI (needs IQAIR_API_KEY in .env)
   analysis/
+    races.py              which runs are races (Garmin Event Type or RACES)
     race_postmortem.py    compare the weeks before two races
     fitness_trend.py      efficiency and pace @ HR over time
     easy_check.py         weekly 80/20 check + mislabelled easy runs
     heat_adjust.py        heat slowdown and heat-adjusted pace
+    goal_planner.py       estimate today vs target time
+    run_conditions.py     forecast per run window, AQI labels, model + measured air
   planner/
-    plan_generator.py     next week's workouts with reasons
+    plan_generator.py     one week of workouts with reasons
+    month_plan.py         the rolling month plan, weekly evaluation, phases, frozen weeks
     safety_rules.py       the checks every plan must pass
   export/
     fit_workout.py        workouts → Garmin .fit files
 app/
   dashboard.py            Streamlit dashboard (draws only; all numbers come from src/)
+  assets/refresh.png      refresh icon
+tests/                    pytest suite on synthetic data
 ```
 
 Loading data is kept separate from analysis. Every analysis module works on
-the same clean columns (`distance_km`, `avg_hr`, `moving_time_s`, ...), so a
-Strava or Garmin API loader can be added later without touching the analysis.
+the same clean columns (`distance_km`, `avg_hr`, `moving_time_s`, ...), so the
+CSV and Garmin API loaders are interchangeable, and a Strava loader could be added the same way.
 
 ---
 
 ## Limitations
 
-- Garmin's CSV has **one summary row per run**, so the easy/hard check uses each run's *average* heart rate. A run with easy parts can still count as hard.
-- Heat adjustment and pace @ HR are **estimates** for comparing runs, not exact predictions.
+- Garmin's CSV has **one summary row per run**. Runs without an activity `.fit` file use their *average* heart rate in the easy/hard check, so a run with easy parts can still count as hard. With the API sync, these are runs older than 12 weeks.
+- The Garmin Personal API is new (October 2026). Garmin can change its endpoints and has not published rate limits.
+- Recordings under 1 km, such as watch tests and false starts, are left out.
+- Heat adjustment, pace @ HR, interval paces and the goal estimate are **estimates** for comparing and planning, not predictions.
 - The default max HR comes from the highest value seen in the data. Real HR zones from Garmin Connect would be more accurate.
-- The `.fit` files are checked with Garmin's official FIT SDK decoder, but watch support for `GARMIN/NewFiles` varies by model.
+- The `.fit` workouts are checked with Garmin's official FIT SDK decoder, but watch support for `GARMIN/NewFiles` varies by model.
+- Air quality is a model estimate unless an IQAir key is set.
+- Dark mode uses Streamlit's built-in dark theme (Streamlit 1.37 supports one custom theme). Choose **Custom Theme** in Settings for the app's own palette.
 
 ---
 
 ## Roadmap
 
 - [x] Phase 1: analysis (post-mortem, fitness trend, easy check, heat)
-- [x] Phase 2: next-week planner with safety rules
+- [x] Phase 2: planner with safety rules, month plan, weekly evaluation
 - [x] Phase 3: `.fit` workout export
-- [ ] Backward goal planner: the gap between current fitness and a target time
+- [x] Backward goal planner, taper and step-back weeks
+- [x] Optional per-second HR from activity `.fit` files
+- [x] Phase 4: automatic import via the Garmin Personal API (pull-only)
 - [ ] Strava bulk-export loader
-- [ ] Phase 4: automatic import via the Garmin personal API (pull-only)

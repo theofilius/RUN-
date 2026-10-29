@@ -23,6 +23,7 @@ from fit_tool.profile.profile_type import (
     Intensity,
     Manufacturer,
     Sport,
+    SubSport,
     WorkoutStepDuration,
     WorkoutStepTarget,
 )
@@ -36,17 +37,34 @@ HR_OFFSET = 100
 # Fallback floor for a step that only has an HR ceiling.
 EASY_HR_FLOOR = 100
 
+# Garmin watches and Garmin Connect expect short strings: step names up to 16
+# characters, notes up to 50. Longer text can be cut off or rejected on import.
+MAX_NAME = 16
+MAX_NOTES = 50
+SHORT_NAMES = {"warm-up": "WU", "easy": "Easy", "tempo": "Tempo", "interval": "Fast",
+               "recovery": "Jog", "cool-down": "CD", "race pace": "Goal"}
+
 INTENSITY = {
     "warm-up": Intensity.WARMUP,
     "cool-down": Intensity.COOLDOWN,
     "interval": Intensity.INTERVAL,
+    "race pace": Intensity.ACTIVE,
     "recovery": Intensity.RECOVERY,
 }
 
 
+def shorten(text, limit):
+    """Cut text to `limit` characters at a word boundary."""
+    if len(text) <= limit:
+        return text
+    cut = text[:limit + 1].rsplit(" ", 1)[0]
+    return cut.rstrip(",.;:-")
+
+
 def workout_name(workout):
-    """Short name shown on the watch, e.g. "Tue easy 4.5k"."""
-    return f"{workout.day:%a} {workout.kind} {workout.distance_km:g}k"
+    """Short name shown on the watch, e.g. "Tue easy 4.5k" (at most MAX_NAME characters)."""
+    kind = {"interval": "intv"}.get(workout.kind, workout.kind)
+    return f"{workout.day:%a} {kind} {workout.distance_km:g}k"
 
 
 def file_name(workout):
@@ -65,13 +83,13 @@ def step_message(step, index):
 
     msg = WorkoutStepMessage()
     msg.message_index = index
-    msg.workout_step_name = f"{step.name} {pace}/km"
-    msg.notes = f"HR {hr_low}-{step.hr_max}, pace {pace}/km. {step.note}"
+    msg.workout_step_name = f"{SHORT_NAMES.get(step.name, step.name)} {pace}"[:MAX_NAME]  # e.g. "Easy 8:11-9:23"
+    msg.notes = shorten(f"HR {hr_low}-{step.hr_max}. {step.note}", MAX_NOTES)
     msg.intensity = INTENSITY.get(step.name, Intensity.ACTIVE)
     msg.duration_type = WorkoutStepDuration.DISTANCE
     msg.duration_distance = step.distance_km * 1000  # metres
-    if step.name == "interval":
-        # HR lags on short repeats, so the watch alerts on pace instead (speed in m/s).
+    if step.target == "pace":
+        # HR lags on short repeats, and goal pace is about pace - the watch alerts on pace (m/s).
         msg.target_type = WorkoutStepTarget.SPEED
         msg.target_speed_zone = 0
         msg.custom_target_speed_low = 1000 / step.pace_slow_s
@@ -96,8 +114,9 @@ def workout_fit_bytes(workout):
     steps = [step_message(step, i) for i, step in enumerate(workout.steps)]
 
     header = WorkoutMessage()
-    header.workout_name = workout_name(workout)
+    header.workout_name = workout_name(workout)[:MAX_NAME]
     header.sport = Sport.RUNNING
+    header.sub_sport = SubSport.GENERIC
     header.num_valid_steps = len(steps)
 
     builder = FitFileBuilder(auto_define=True, min_string_size=50)
@@ -127,7 +146,10 @@ if __name__ == "__main__":
     from src.planner.month_plan import build_month_plan, covered_until_from_file, current_week
 
     runs = load_runs_with_heat(sys.argv[1])
-    plan = current_week(build_month_plan(runs, covered_until_from_file(sys.argv[1])))["plan"]
+    from src.goal_settings import load_goal
+
+    plan = current_week(build_month_plan(runs, covered_until_from_file(sys.argv[1]), goal_race=load_goal(),
+                                         plans_dir=Path(sys.argv[1]).parent / "plans"))["plan"]
 
     out_dir = Path("exports") / f"week-{plan['context']['plan_start']:%Y-%m-%d}"
     for path in export_plan(plan, out_dir):

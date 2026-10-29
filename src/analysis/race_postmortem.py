@@ -8,7 +8,9 @@ report can show how each number was produced.
 
 import pandas as pd
 
-from src.config import COMPARE_WEEKS, EASY_HR_MAX, RACES
+from src.analysis.easy_check import easy_seconds
+from src.analysis.races import race_list
+from src.config import COMPARE_WEEKS, EASY_HR_MAX
 from src.units import format_duration, format_pace
 
 
@@ -34,7 +36,7 @@ def summarize_block(block, race_start, weeks):
     # 0 = the week right before the race, 1 = the week before that, ...
     weeks_before_race = (race_start - block["start_time"]).dt.days // 7
     total_time = block["moving_time_s"].sum()
-    easy_time = block.loc[block["avg_hr"] <= EASY_HR_MAX, "moving_time_s"].sum()
+    easy_time = easy_seconds(block).sum()
 
     return {
         "runs_per_week": len(block) / weeks,
@@ -55,7 +57,8 @@ METRICS = {
     "longest_run_km": ("Longest run (km)", "{:.1f}", "max distance of any single run"),
     "weeks_with_runs": ("Weeks with at least 1 run", "{:.0f}", "count of 7-day periods (counted back from race) with a run"),
     "avg_hr": ("Average HR (bpm)", "{:.0f}", "each run's avg HR weighted by its moving time"),
-    "easy_time_pct": ("Easy time (%)", "{:.0f}", f"moving time of runs with avg HR <= {EASY_HR_MAX:.0f} bpm / total moving time"),
+    "easy_time_pct": ("Easy time (%)", "{:.0f}", f"moving time at HR <= {EASY_HR_MAX:.0f} bpm / total moving time "
+                      "(per second where a .fit file exists, else by each run's average HR)"),
     "efficiency": ("Efficiency (m/min per bpm)", "{:.2f}", "median of (distance m / moving minutes) / avg HR; higher = fitter"),
     "heat_slowdown_pct": ("Heat slowdown (%)", "{:.1f}", "mean slowdown from air temp + dew point (heat_adjust.py)"),
 }
@@ -65,20 +68,21 @@ def race_result(runs, race_start):
     """The race activity itself, matched by its exact start time."""
     match = runs[runs["start_time"] == race_start]
     if match.empty:
-        raise ValueError(f"No run starts at {race_start}; check RACES in config.py")
+        raise ValueError(f"No run starts at {race_start}; check the race in RACES in config.py")
     return match.iloc[0]
 
 
 def compare_races(runs, race_a, race_b, weeks=COMPARE_WEEKS):
-    """Build the post-mortem table for two race names from config.RACES.
+    """Build the post-mortem table for two race names from race_list(runs).
 
     Returns a DataFrame with one row per metric: value before race A,
     value before race B, the change, and the formula behind it.
     """
     rows = []
     summaries = {}
+    races = race_list(runs)
     for name in (race_a, race_b):
-        start = pd.Timestamp(RACES[name]["start"])
+        start = pd.Timestamp(races[name]["start"])
         summaries[name] = summarize_block(training_block(runs, start, weeks), start, weeks)
 
     for key, (label, fmt, formula) in METRICS.items():
@@ -96,8 +100,9 @@ def compare_races(runs, race_a, race_b, weeks=COMPARE_WEEKS):
 def race_rows(runs, race_a, race_b):
     """Side-by-side race results: time, pace, HR, efficiency."""
     rows = []
+    races = race_list(runs)
     for name in (race_a, race_b):
-        race = race_result(runs, pd.Timestamp(RACES[name]["start"]))
+        race = race_result(runs, pd.Timestamp(races[name]["start"]))
         rows.append({
             "race": name,
             "date": f"{race['start_time']:%Y-%m-%d}",
@@ -117,7 +122,7 @@ if __name__ == "__main__":
     from src.analysis.heat_adjust import load_runs_with_heat
 
     runs = load_runs_with_heat(sys.argv[1])
-    race_a, race_b = list(RACES)
+    race_a, race_b = list(race_list(runs))[-2:]   # the last two races
 
     pd.set_option("display.width", 200, "display.max_colwidth", 80)
     print("RACES\n")

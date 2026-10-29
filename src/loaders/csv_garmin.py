@@ -43,6 +43,9 @@ NUMBER_COLUMNS = [
 
 MISSING = {"--", ""}
 
+# Shorter recordings are watch tests or false starts, not runs.
+MIN_DISTANCE_KM = 1.0
+
 
 def time_to_seconds(text):
     """Convert "03:14:13" or "9:03" to seconds. Returns None if missing.
@@ -80,6 +83,7 @@ def load_garmin_csv(path):
 
     # Keep running only ("Running", "Treadmill Running", "Trail Running", ...).
     df = df[df["activity_type"].str.contains("Running", na=False)]
+    df = df[df["distance_km"] >= MIN_DISTANCE_KM]
 
     return df.sort_values("start_time").reset_index(drop=True)
 

@@ -10,7 +10,8 @@ a run titled "Base" or "recovery" with a high average HR was not easy.
 
 import pandas as pd
 
-from src.config import EASY_HR_MAX, RACES, TARGET_EASY_PCT
+from src.analysis.races import race_mask
+from src.config import EASY_HR_MAX, TARGET_EASY_PCT
 
 # Words in a run title that mean "this was meant to be easy".
 EASY_TITLE_WORDS = ["base", "easy", "recov", "long"]
@@ -23,12 +24,26 @@ VERDICTS = [
 ]
 
 
+def easy_seconds(runs):
+    """Easy moving time of each run.
+
+    With per-second HR from an activity .fit file (zone_* columns, see
+    loaders/fit_activities.py): moving time x share of seconds at or below
+    EASY_HR_MAX. Without it: the whole run if its average HR is at or below
+    EASY_HR_MAX, otherwise nothing.
+    """
+    by_average = runs["moving_time_s"].where(runs["avg_hr"] <= EASY_HR_MAX, 0)
+    if "zone_easy_s" not in runs:
+        return by_average
+    share = runs["zone_easy_s"] / runs["zone_total_s"]
+    return (runs["moving_time_s"] * share).where(share.notna(), by_average)
+
+
 def label_runs(runs):
     """Add is_easy (avg HR <= EASY_HR_MAX) and is_race columns."""
-    race_starts = pd.to_datetime([race["start"] for race in RACES.values()])
     labelled = runs.copy()
     labelled["is_easy"] = labelled["avg_hr"] <= EASY_HR_MAX
-    labelled["is_race"] = labelled["start_time"].isin(race_starts)
+    labelled["is_race"] = race_mask(runs)
     return labelled
 
 
@@ -42,7 +57,7 @@ def verdict(easy_pct):
 def weekly_check(runs):
     """One row per week that has runs: time, easy %, verdict."""
     labelled = label_runs(runs)
-    labelled["easy_time_s"] = labelled["moving_time_s"].where(labelled["is_easy"], 0)
+    labelled["easy_time_s"] = easy_seconds(labelled)
     week = labelled["start_time"].dt.to_period("W-SUN")  # weeks run Monday-Sunday
 
     weekly = labelled.groupby(week).agg(

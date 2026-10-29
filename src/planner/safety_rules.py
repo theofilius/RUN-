@@ -55,11 +55,16 @@ def check_weekly_increase(planned_km, baseline_km):
     )
 
 
-def check_two_week_increase(planned_km, runs, plan_start):
-    """Nielsen 2014: compare the next 7 days with the 7 days before."""
-    last_7_km = km_between(runs, plan_start - pd.Timedelta(days=7), plan_start)
+def check_two_week_increase(planned_km, runs, plan_start, reference_km=None):
+    """Nielsen 2014: compare the next 7 days with the 7 days before.
+
+    reference_km: after a step-back week, the week before it is the fair
+    comparison - returning to a load you already handled is not a new jump.
+    """
+    last_7_km = max(km_between(runs, plan_start - pd.Timedelta(days=7), plan_start), reference_km or 0.0)
     rule = "Planned week at most 30% more than the last 7 days"
-    formula = "change = planned km / km in the 7 days before the plan - 1"
+    formula = ("change = planned km / km in the 7 days before the plan - 1"
+               + (" (after a step-back week: the week before it)" if reference_km else ""))
     if last_7_km == 0:
         return result(
             rule, "info",

@@ -9,12 +9,12 @@ are cached for CACHE_MINUTES.
 """
 
 import json
-import os
 import time
 from pathlib import Path
 
 import pandas as pd
 
+from src.env import env_value
 from src.loaders.forecast_openmeteo import get_json
 from src.loaders.weather_openmeteo import CITY_COORDS
 
@@ -24,15 +24,7 @@ CACHE_MINUTES = 30
 
 def api_key(project_root):
     """IQAIR_API_KEY from the environment or the project's .env file, or None."""
-    if os.environ.get("IQAIR_API_KEY"):
-        return os.environ["IQAIR_API_KEY"].strip()
-    env_file = Path(project_root) / ".env"
-    if env_file.exists():
-        for line in env_file.read_text().splitlines():
-            name, _, value = line.partition("=")
-            if name.strip() == "IQAIR_API_KEY" and value.strip():
-                return value.strip().strip('"').strip("'")
-    return None
+    return env_value("IQAIR_API_KEY", project_root)
 
 
 def fetch_current(city, key):

@@ -3,3 +3,4 @@ numpy
 streamlit>=1.37
 plotly>=5.19
 fit-tool==0.9.16
+pytest  # tests only

@@ -27,24 +27,24 @@ RATIO_LIMITS = (0.5, 2.0)   # never scale the model by more than this
 # early morning as the alternative when the evening looks bad.
 WINDOWS = {"run time": RUN_HOURS, "early morning": (5, 7)}
 
-# WMO weather codes (used by Open-Meteo) -> icon and short label.
+# WMO weather codes (used by Open-Meteo) -> short label.
 WEATHER_TYPES = [
-    ((0,), "☀️", "clear"),
-    ((1, 2), "🌤", "partly cloudy"),
-    ((3,), "☁️", "cloudy"),
-    ((45, 48), "🌫", "fog"),
-    ((51, 53, 55, 56, 57), "🌦", "drizzle"),
-    ((61, 63, 65, 66, 67), "🌧", "rain"),
-    ((80, 81, 82), "🌧", "showers"),
-    ((95, 96, 99), "⛈", "thunderstorm"),
+    ((0,), "clear"),
+    ((1, 2), "partly cloudy"),
+    ((3,), "cloudy"),
+    ((45, 48), "fog"),
+    ((51, 53, 55, 56, 57), "drizzle"),
+    ((61, 63, 65, 66, 67), "rain"),
+    ((80, 81, 82), "showers"),
+    ((95, 96, 99), "thunderstorm"),
 ]
 
 
 def weather_type(code):
-    """(icon, label) for a WMO weather code."""
+    """Short label for a WMO weather code."""
     if code is None or (isinstance(code, float) and math.isnan(code)):
-        return "", ""
-    return next(((icon, label) for codes, icon, label in WEATHER_TYPES if int(code) in codes), ("", ""))
+        return ""
+    return next((label for codes, label in WEATHER_TYPES if int(code) in codes), "")
 
 
 def next_hours(forecast, now, hours=6):
@@ -52,7 +52,7 @@ def next_hours(forecast, now, hours=6):
     start = now.floor("h")
     rows = forecast[(forecast["time"] >= start) & (forecast["time"] <= start + pd.Timedelta(hours=hours))].copy()
     rows["heat_slowdown_pct"] = slowdown_pct(rows["air_temp_c"], rows["dew_point_c"])
-    rows["icon"], rows["weather"] = zip(*rows["weather_code"].map(weather_type)) if len(rows) else ([], [])
+    rows["weather"] = rows["weather_code"].map(weather_type)
     return rows
 
 # US EPA Air Quality Index categories: (upper limit, name).
@@ -108,8 +108,7 @@ def window_conditions(forecast, day, hours):
     aqi = rows["us_aqi"].mean()
     worst_code = rows["weather_code"].max() if "weather_code" in rows else None
     return {
-        "icon": weather_type(worst_code)[0],
-        "weather": weather_type(worst_code)[1],
+        "weather": weather_type(worst_code),
         "air_temp_c": temp,
         "dew_point_c": dew,
         "heat_slowdown_pct": float(slowdown_pct(temp, dew)),
@@ -123,9 +122,10 @@ def window_conditions(forecast, day, hours):
 
 
 def describe_window(name, c):
-    """'run time 19-21: 🌧 27°C, dew 24°C (heat -5%), rain 98%, AQI 205 very unhealthy (model)'"""
+    """'run time 19-21: rain, 27°C, dew 24°C (heat -5%), rain 98%, AQI 205 very unhealthy (model)'"""
     first, last = WINDOWS[name]
-    text = (f"{name} {first:02d}-{last:02d}: {c['icon']} {c['air_temp_c']:.0f}°C, dew {c['dew_point_c']:.0f}°C "
+    sky = f"{c['weather']}, " if c["weather"] else ""
+    text = (f"{name} {first:02d}-{last:02d}: {sky}{c['air_temp_c']:.0f}°C, dew {c['dew_point_c']:.0f}°C "
             f"(heat -{c['heat_slowdown_pct']:.0f}%), rain {c['rain_chance_pct']:.0f}%")
     if c["us_aqi"] is not None:
         text += f", AQI {c['us_aqi']:.0f} {aqi_label(c['us_aqi'])} ({c['aqi_source']})"

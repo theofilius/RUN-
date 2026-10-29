@@ -14,14 +14,14 @@ import numpy as np
 import pandas as pd
 
 from src.analysis.race_postmortem import efficiency
-from src.config import RACES, REFERENCE_HR
+from src.analysis.races import race_mask
+from src.config import REFERENCE_HR
 from src.units import format_pace
 
 
 def training_runs_with_efficiency(runs):
     """Training runs only, with efficiency and estimated pace @ REFERENCE_HR."""
-    race_starts = pd.to_datetime([race["start"] for race in RACES.values()])
-    training = runs[~runs["start_time"].isin(race_starts)].copy()
+    training = runs[~race_mask(runs)].copy()
 
     training["efficiency"] = efficiency(training)
     # efficiency = (m/min) / bpm  ->  speed at REFERENCE_HR = efficiency x REFERENCE_HR
@@ -48,6 +48,11 @@ def monthly_summary(training):
     return summary
 
 
+def correlation(x, y):
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return np.corrcoef(x, y)[0, 1]
+
+
 def trend_line(training):
     """Straight line efficiency = slope x day + intercept through all runs.
 
@@ -65,7 +70,8 @@ def trend_line(training):
         "change_pct": 100 * (last - first) / first,
         "start_pace_s": 1000 / (first * REFERENCE_HR) * 60,
         "end_pace_s": 1000 / (last * REFERENCE_HR) * 60,
-        "r": np.corrcoef(days, training["efficiency"])[0, 1],
+        # r is undefined (nan) when every run has the same efficiency - no warning needed
+        "r": correlation(days, training["efficiency"]),
     }
 
 

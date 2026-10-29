@@ -17,7 +17,9 @@ HOME_CITY = "Jakarta"
 # The forecast summarises these hours for every run day.
 RUN_HOURS = (19, 21)
 
-# Races to analyse. Start times are copied from the watch data.
+# Races. With the Garmin API sync, setting Event Type to "Race" in Garmin Connect is
+# enough (see analysis/races.py). List a race here too for CSV data, or for a short name.
+# Start times are copied from the watch data.
 RACES = {
     "VHM": {"start": "2026-06-14 04:51:01", "distance_km": 21.1},
     "Jakarta Running Festival HM": {"start": "2026-10-24 04:41:22", "distance_km": 21.1},
@@ -34,6 +36,15 @@ TARGET_EASY_PCT = 80
 # Heart rate used to express fitness as a pace ("pace @ 160 bpm").
 # Close to your typical run HR, so the estimate stays near real data.
 REFERENCE_HR = 160
+
+# Planner: every Nth week is a step-back week - distance drops about 25% so your
+# body can absorb the weeks before it (common coaching practice). 0 = off.
+STEP_BACK_EVERY = 4
+
+# Your next goal race - the default only. Choose distance, "sub" target and race
+# date in the dashboard (saved to data/goal.json). With a date, the 2 weeks before
+# the race become a taper; with a target, long runs get a goal-pace finish.
+GOAL_RACE = {"name": "Next race", "date": None, "distance_km": 21.1, "target_time": None}
 
 # Planner: did you have a running injury in the last 12 months?
 # The strongest injury predictor in Fokkema 2020; if True, build weeks hold
