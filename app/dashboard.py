@@ -32,25 +32,30 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from i18n import LANGUAGES, Text
+from src.analysis import checkpoint
 from src.analysis.easy_check import mislabelled_easy_runs, weekly_check
 from src.analysis.fitness_trend import monthly_summary, training_runs_with_efficiency
-from src.analysis.goal_planner import REALISTIC_GAIN, goal_gap, parse_time, peak_km, target_options
+from src.analysis.goal_planner import REALISTIC_GAIN, goal_gap, parse_time, peak_km, target_options, weeks_needed
 from src.analysis.heat_adjust import SLOWDOWN_TABLE, load_api_runs_with_heat, load_runs_with_heat
 from src.analysis.race_postmortem import METRICS, compare_races, race_rows
 from src.analysis.races import race_list
+from src.analysis.run_review import review
 from src.analysis.run_conditions import aqi_label, combine_air, next_hours, window_conditions
 from src.config import (
     COMPARE_WEEKS, EASY_HR_MAX, GOAL_RACE, HOME_CITY, MAX_HR, PLAN_START, REFERENCE_HR, RUN_HOURS, RUNS_PER_WEEK,
     TARGET_EASY_PCT,
 )
 from src import programs
+from src.evidence import SOURCES
 from src.goal_settings import DISTANCES, distance_name, load_goal
 from src.loaders.forecast_openmeteo import fetched_at, load_forecast
 from src.loaders.garmin_api import KEY_WARN_DAYS, SYNC_HOURS, KeyRejected, api_key, key_days_left, sync, synced_at
+from src.loaders.fit_activities import ACTIVITY_DIR, load_splits
 from src.loaders.iqair import load_current
 from src.planner.month_plan import build_month_plan, covered_until, covered_until_from_file, current_week, \
     weekly_fitness_gain
 from src.planner.plan_generator import RACE_PACE_MAX_KM
+from src.planner.safety_rules import POST_RACE_REST_DAYS, RECOVERY_DAYS, recovery_days
 from src.units import format_duration, format_pace
 
 # Palette: paper, red, black - plus tints of them for quiet chrome.
@@ -263,6 +268,30 @@ def page_css():
     .cal .day.mid .pop {{ left:50%; transform:translateX(-50%); }}
     .cal .day.end .pop {{ left:auto; right:0; }}
     .cal .day:hover .pop, .cal .day:focus .pop, .cal .day:focus-within .pop {{ display:block; }}
+    /* With a mouse, a click on the day opens it; on a touch screen a tap shows the menu first. */
+    .cal .day a.go {{ display:none; position:absolute; inset:0; z-index:1; }}
+    @media (hover:hover) and (pointer:fine) {{ .cal .day a.go {{ display:block; }} }}
+    .review {{ border-top:3px solid currentColor; padding-top:10px; margin:8px 0 18px; }}
+    .review .verdict {{ font-size:1.35rem; font-weight:700; margin:10px 0 4px; }}
+    .review .verdict.bad {{ color:{RED}; }}
+    .review ul {{ margin:8px 0 0 1.1rem; padding:0; }}
+    .review li {{ margin:4px 0; }}
+    .review table {{ width:100%; border-collapse:collapse; margin-top:14px; font-size:0.9rem; }}
+    .review td {{ padding:6px 8px 6px 0; border:0 !important; border-top:1px solid rgba(128,128,128,0.3) !important;
+                  background:transparent !important; }}
+    .review td:first-child {{ opacity:0.7; width:45%; }}
+    .splits {{ margin:0 0 18px; }}
+    .splits table {{ width:100%; border-collapse:collapse; margin-top:6px; font-size:0.9rem;
+                     font-variant-numeric:tabular-nums; }}
+    .splits th {{ text-align:left; font-weight:600; opacity:0.7; padding:4px 8px 4px 0;
+                  border:0 !important; background:transparent !important; }}
+    .splits td {{ padding:5px 8px 5px 0; border:0 !important; border-top:1px solid rgba(128,128,128,0.3) !important;
+                  background:transparent !important; }}
+    .splits td:nth-child(4) {{ width:38%; }}
+    .splits .bar {{ display:block; height:4px; margin-top:3px; border-radius:2px; background:currentColor;
+                    opacity:0.35; }}
+    .splits .bar.hard {{ background:{RED}; opacity:1; }}
+    .splits .hint {{ font-size:0.8rem; opacity:0.65; margin-top:6px; }}
     .pop .t {{ font-weight:700; font-size:0.9rem; }}
     .pop .m {{ opacity:0.75; margin-bottom:8px; }}
     .pop table {{ width:100%; border-collapse:collapse; margin:4px 0 6px; }}
@@ -339,6 +368,11 @@ def rest_reason(day, race_name=""):
     return t("rest normal")
 
 
+def metres(step):
+    """'800' for an 800 m repeat."""
+    return f"{1000 * step.distance_km:.0f}"
+
+
 def today_stats(day):
     """The three numbers of today's run: distance, what to hold, time. [(value, unit, label, key)]"""
     reps = [s for s in day.steps if s.name == "interval"]
@@ -359,7 +393,7 @@ def today_hint(day):
     reps = [s for s in day.steps if s.name == "interval"]
     main = next((s for s in day.steps if s.name in ("easy", "tempo")), day.steps[0])
     if reps:
-        return t("hint interval", reps=len(reps))
+        return t("hint interval", reps=len(reps), m=metres(reps[0]))
     if main.name == "tempo":
         return t("hint tempo", km=f"{main.distance_km:g}")
     return t("hint hr", fast=format_pace(main.pace_fast_s), slow=format_pace(main.pace_slow_s))
@@ -374,7 +408,7 @@ def profile(day):
     for s in day.steps:   # repeats are shown once: "6 × 800 m"
         if s.name in ("interval", "recovery"):
             if s.name == "interval" and "interval" not in seen:
-                names.append(f"{sum(x.name == 'interval' for x in day.steps)} × 800 m")
+                names.append(f"{sum(x.name == 'interval' for x in day.steps)} × {metres(s)} m")
             seen.append(s.name)
             continue
         names.append(f"{t('step ' + s.name)} {s.distance_km:g} km")
@@ -386,6 +420,10 @@ def extra_lines(day):
     lines = []
     if info.get("strides"):
         lines.append(t("strides"))
+    if info.get("sharpener"):
+        lines.append(t("sharpener"))
+    if info.get("second"):
+        lines.append(t("second hard"))
     if info.get("finish_km"):
         pace = next((s for s in day.steps if s.name == "race pace"), None)
         if pace:
@@ -405,7 +443,8 @@ def step_note(step, day, index, total_reps):
         text = t("note easy long" if day.kind == "long" else "note easy", hr=step.hr_max)
         return text + (" " + t("strides") if (getattr(day, "info", {}) or {}).get("strides") else "")
     if step.name == "interval":
-        return t("note interval", i=index, n=total_reps)
+        sharpener = (getattr(day, "info", {}) or {}).get("sharpener")
+        return t("note sharpen" if sharpener else "note interval", i=index, n=total_reps)
     return t("note " + step.name)
 
 
@@ -446,9 +485,11 @@ def week_reason(plan):
     ctx = plan["context"]
     kind = plan["week_type"]
     if kind == "recovery":
-        lines = [t("why recovery", days=ctx["days_since_race"])]
+        lines = [t("why recovery", days=ctx["days_since_race"], easy=recovery_days(ctx.get("last_race_km")))]
     elif kind == "fix easy":
         lines = [t("why fix easy", pct=f"{ctx['easy_pct']:.0f}", hr=EASY_HR_MAX)]
+    elif kind == "build" and plan.get("second_quality"):
+        lines = [t("why build two"), t("sessions grow")]
     elif kind == "build" and (plan.get("goal") or {}).get("every_other"):
         lines = [t("why build goal"), t("sessions grow")]
     else:
@@ -474,7 +515,9 @@ def check_message(check):
         return t("check long run step", long=f"{v['long_km']:g}", longest=f"{v['longest_km']:.1f}")
     if key == "load spike":
         return t("check load spike", ratio=f"{v['ratio']:.1f}", usual=f"{v['usual_km']:.0f}")
-    if key in ("rising weeks", "hard after race", "post-race rest"):
+    if key in ("hard after race", "post-race rest"):
+        return t("check " + key, days=v.get("days", RECOVERY_DAYS if key == "hard after race" else POST_RACE_REST_DAYS))
+    if key == "rising weeks":
         return t("check " + key)
     return escape(f"{check['rule']} - {check['detail']}")   # a plan saved before checks had keys
 
@@ -689,15 +732,36 @@ data_key = str(last_sync) if from_api else f"{source}:{Path(source).stat().st_mt
 page = st.query_params.get("page", "today")
 
 
+def plan_stage(runs, start, n_weeks, goal, plans_dir):
+    """n_weeks of plan from `start` for `goal`."""
+    current = max(0, (pd.Timestamp(today) - programs.monday_of(start)).days // 7)
+    return build_month_plan(runs, covered, plan_start=start, today=today, weeks_ahead=n_weeks - current,
+                            goal_race=goal, plans_dir=plans_dir)
+
+
 @st.cache_data(show_spinner=False)
 def plan_program(program_json, data_key, today, covered, _runs):
-    """A program's plan from its start to its race (cached until new data or a change to it)."""
+    """A program's plan from its start to its race (cached until new data or a change to it).
+
+    With a milestone: stage 1 up to final_start, then (once passed) stage 2, numbered on.
+    Each week gets its "stage" (None, 1 or 2).
+    """
     program = json.loads(program_json)
-    start = pd.Timestamp(program["start_date"])
-    current = max(0, (pd.Timestamp(today) - (start - pd.Timedelta(days=start.weekday()))).days // 7)
-    return build_month_plan(_runs, covered, plan_start=program["start_date"], today=today,
-                            weeks_ahead=programs.week_count(program) - current, goal_race=programs.goal(program),
-                            plans_dir=programs.plans_dir(DATA_DIR, program))
+    stage = programs.stage(program)
+    if stage is None:
+        weeks = plan_stage(_runs, program["start_date"], programs.week_count(program), programs.goal(program),
+                           programs.plans_dir(DATA_DIR, program))
+        return [{**w, "stage": None} for w in weeks]
+    first = (pd.Timestamp(programs.final_start(program)) - programs.monday_of(program["start_date"])).days // 7
+    if stage == "stopped":
+        first = program["milestone"]["weeks"]
+    weeks = [{**w, "stage": 1} for w in plan_stage(_runs, program["start_date"], first, programs.milestone_goal(program),
+                                                   programs.plans_dir(DATA_DIR, program))]
+    if stage == "final":
+        final = plan_stage(_runs, programs.final_start(program).isoformat(), programs.week_count(program) - first,
+                           programs.goal(program), programs.plans_dir(DATA_DIR, program, final=True))
+        weeks += [{**w, "number": w["number"] + first, "stage": 2} for w in final]
+    return weeks
 
 
 def program_plan(program):
@@ -710,11 +774,26 @@ def link(text, **params):
     return f"<a href='?{query}' target='_self'>{text}</a>"
 
 
+def milestone_label(program):
+    """'5K test sub 0:33:34'"""
+    m = program["milestone"]
+    return t("milestone label", dist=t("dist " + distance_name(m["distance_km"])), target=m["target_time"])
+
+
+def race_name(program, day):
+    """What a race day in the program is: the milestone test in stage 1, else the program's race."""
+    if programs.stage(program) and day < programs.final_start(program):
+        return milestone_label(program)
+    return program["name"]
+
+
 def program_line(program):
     """'Half marathon · sub 2:40:00 · race 12 Apr 2027 · from 28 Oct'"""
     parts = [t("dist " + distance_name(program["distance_km"]))]
     if program.get("target_time"):
         parts.append(f"sub {program['target_time']}")
+    if programs.stage(program) in ("milestone", "stopped"):
+        parts.append(t("after milestone", label=milestone_label(program)))
     if program.get("race_date"):
         parts.append(t("race on", date=t.date(pd.Timestamp(program["race_date"]), weekday=False)))
     else:
@@ -728,7 +807,91 @@ def week_of(program, weeks):
     state_now = programs.status(program, today)
     if state_now != "running":
         return t("program " + state_now)
-    return t("week of", n=current_week(weeks)["number"], total=len(weeks))
+    week = current_week(weeks)
+    text = t("week of", n=week["number"], total=programs.week_count(program))
+    return f"{t('stage n', n=week['stage'])} · {text}" if week.get("stage") else text
+
+
+def milestone_box(program, where, weeks):
+    """Where a program with a milestone stands, its latest check-in, and the choice after a missed test."""
+    stage = programs.stage(program)
+    if stage is None:
+        return
+    m = program["milestone"]
+    final = t("dist " + distance_name(program["distance_km"])) + \
+        (f" sub {program['target_time']}" if program.get("target_time") else "")
+    if stage == "stopped":
+        note(t("milestone stopped", date=t.date(pd.Timestamp(m["gave_up"]), weekday=False)))
+        return
+    if stage == "final":
+        passed = m["passed"]
+        note(t("milestone passed", label=milestone_label(program), time=format_duration(passed["time_s"]),
+               km=f"{passed['distance_km']:g}", date=t.date(pd.Timestamp(passed["date"]), weekday=False),
+               final=final))
+        return
+    target_s = parse_time(m["target_time"])
+    lines = [t("milestone now", label=milestone_label(program), pace=format_pace(target_s / m["distance_km"]),
+               date=t.date(pd.Timestamp(programs.test_date(program)), weekday=False), final=final),
+             t("milestone rule", dist=t("dist " + distance_name(m["distance_km"])))]
+    if m.get("missed"):
+        lines.append(t("milestone tries", n=len(m["missed"])))
+    if not programs.test_missed(program, covered):
+        note("<br>".join(lines))
+        check_in_box(program, [w for w in weeks if w.get("stage") == 1], where)
+        return
+    note(t("milestone missed", label=milestone_label(program),
+           date=t.date(pd.Timestamp(programs.test_date(program)), weekday=False), weeks=programs.REPEAT_WEEKS),
+         accent=True)
+    b1, b2, _ = st.columns([1.4, 1, 2])
+    if b1.button(t("milestone repeat", weeks=programs.REPEAT_WEEKS), type="primary", key=f"{where}-repeat",
+                 use_container_width=True):
+        programs.repeat_milestone(DATA_DIR, store, program["id"], today)
+        st.rerun()
+    if b2.button(t("milestone give up"), key=f"{where}-give-up", use_container_width=True):
+        programs.give_up(DATA_DIR, store, program["id"], today)
+        st.rerun()
+
+
+def check_in_box(program, weeks, where):
+    """The newest check-in of stage 1 (src/analysis/checkpoint.py) and, when behind, the choice."""
+    c = checkpoint.latest(weeks, known, programs.test_week(program))
+    if c is None:
+        return
+    ok = c["checks"]
+
+    def line(key, text):
+        """'ok · runs: 5 of 5 done (own rule)': the verdict, the numbers and where the limit comes from."""
+        sources = ", ".join(t("own rule") if k == "own" else SOURCES[k]["cite"].split(",")[0]
+                            for k in checkpoint.CHECK_SOURCES[key])
+        return f"<b>{t('check ok' if ok[key] else 'check short')}</b> · {text} <span class='muted'>({sources})</span>"
+
+    lines = [t("check in title", start=t.date(pd.Timestamp(c["start"]), weekday=False),
+               end=t.date(pd.Timestamp(c["end"]), weekday=False)),
+             line("runs", t("check in runs", done=c["actual_runs"], planned=c["planned_runs"])),
+             line("long", t("check in long", done=c["long_done"], planned=c["long_planned"])),
+             line("hard", t("check in hard", done=c["hard_done"], planned=c["hard_planned"]))]
+    if c["easy_pct"] is not None:
+        lines.append(line("easy", t("check in easy", pct=f"{c['easy_pct']:.0f}", min=checkpoint.EASY_PCT_MIN)))
+    if c["efficiency_change"] is not None:
+        lines.append(line("fitness", t("check in fitness", change=f"{100 * c['efficiency_change']:+.1f}",
+                                       hr=EASY_HR_MAX, before=format_pace(c["easy_pace_before_s"]),
+                                       now=format_pace(c["easy_pace_now_s"]))))
+    choice = programs.check_in_choice(program, c["end"])
+    if c["on_track"]:
+        note("<br>".join(lines + [t("check in go")]))
+        return
+    if choice:
+        note("<br>".join(lines + [t("check in chose " + choice, weeks=checkpoint.POSTPONE_WEEKS)]))
+        return
+    note("<br>".join(lines + [t("check in behind", weeks=checkpoint.POSTPONE_WEEKS)]), accent=True)
+    b1, b2, _ = st.columns([1.4, 1.2, 2])
+    if b1.button(t("check in postpone", weeks=checkpoint.POSTPONE_WEEKS), type="primary", key=f"{where}-postpone",
+                 use_container_width=True):
+        programs.answer_check_in(DATA_DIR, store, program["id"], c["end"], "postpone", checkpoint.POSTPONE_WEEKS)
+        st.rerun()
+    if b2.button(t("check in keep"), key=f"{where}-keep", use_container_width=True):
+        programs.answer_check_in(DATA_DIR, store, program["id"], c["end"], "keep")
+        st.rerun()
 
 
 def goal_summary(goal, plan):
@@ -740,7 +903,7 @@ def goal_summary(goal, plan):
         else:
             st.caption(t("pick target"))
         return None
-    peak = peak_km(goal["distance_km"], parse_time(goal["target_time"]))
+    peak = goal.get("peak_km") or peak_km(goal["distance_km"], parse_time(goal["target_time"]))
     lines = [t("estimate now", est=format_duration(gap["estimate_now_s"]), dist=t("dist " + distance_name(goal["distance_km"]))),
              t("gap", gap=format_duration(gap["gap_s"])) if gap["gap_s"] > 0 else t("gap none")]
     if gap["gap_s"] > 0:
@@ -801,8 +964,10 @@ def load_chart(weeks, peak):
 
 
 def weeks_table(weeks):
+    staged = any(w.get("stage") for w in weeks)
     st.dataframe(pd.DataFrame([{
         t("col week"): w["number"],
+        **({t("col stage"): w.get("stage")} if staged else {}),
         t("col dates"): f"{t.date(w['start'], weekday=False)} - {t.date(w['end'], weekday=False)}",
         t("col type"): week_type(w["plan"]),
         "km": sum(x.distance_km for x in w["plan"]["workouts"]),
@@ -859,9 +1024,10 @@ def day_cell(program, days, day, selected):
     classes.append("mid" if day.weekday() in (2, 3) else "end" if day.weekday() >= 4 else "start")
     km = f"{plan_day.distance_km:g} km" if is_run else "&nbsp;"
     href = f"?page=programs&program={program['id']}&day={day.isoformat()}&lang={lang}"
-    return (f"<div class='{' '.join(classes)}' tabindex='0'><div class='n'>{day.day}</div>"
+    return (f"<div class='{' '.join(classes)}' tabindex='0'><a class='go' href='{href}' target='_self'></a>"
+            f"<div class='n'>{day.day}</div>"
             f"<div class='k'>{kind_name(plan_day.kind, short=True)}</div><div class='d'>{km}</div>"
-            f"<div class='s'>{status}</div>{day_popup(plan_day, ran, href, program['name'])}</div>")
+            f"<div class='s'>{status}</div>{day_popup(plan_day, ran, href, race_name(program, day))}</div>")
 
 
 def day_popup(day, ran, href, race_name):
@@ -877,7 +1043,7 @@ def day_popup(day, ran, href, race_name):
                 continue
             if s.name == "interval":
                 if s is reps[0]:
-                    rows.append((f"{len(reps)} × 800 m", True, pace_range(s), f"{s.hr_min}–{s.hr_max}"))
+                    rows.append((f"{len(reps)} × {metres(s)} m", True, pace_range(s), f"{s.hr_min}–{s.hr_max}"))
                     rows.append((f"{t('step recovery')} {len(reps) - 1} × 400 m", False, "", ""))
                 continue
             hard = s.name in ("tempo", "race pace")
@@ -892,8 +1058,89 @@ def day_popup(day, ran, href, race_name):
         pace = format_pace(ran["moving_time_s"].sum() / km) if km else "-"
         hr = f"{ran['avg_hr'].mean():.0f}"
         parts.append(f"<div class='x'><b>{t('you ran', km=f'{km:.1f}', pace=pace, hr=hr)}</b></div>")
-    parts.append(f"<a href='{href}' target='_self'>{t('full menu')} →</a>")
+    parts.append(f"<a href='{href}' target='_self'>{t('analysis link' if ran is not None else 'full menu')} →</a>")
     return f"<div class='pop'>{''.join(parts)}</div>"
+
+
+def run_analysis(run, day):
+    """One run in full: the numbers, an overall verdict and what they mean against the menu."""
+    r = review(run, day, runs)
+    pace = run["avg_pace_s_per_km"]
+    stats = [(f"{run['distance_km']:.2f}", "km", t("stat distance")),
+             (format_duration(run["moving_time_s"]), "", t("stat moving")),
+             (format_pace(pace) if pd.notna(pace) else "-", "/km", t("stat pace")),
+             (f"{run['avg_hr']:.0f}" if pd.notna(run["avg_hr"]) else "-", "bpm", t("stat avg hr"))]
+    share = r["easy_share"]
+    lines = []
+    if r["distance"] == "unplanned":
+        lines.append(t("dist unplanned"))
+    elif r["distance"]:
+        lines.append(t("dist " + r["distance"], km=f"{r['km']:.1f}", plan=f"{r['planned_km']:g}"))
+    if r["intensity"] == "hard session":
+        lines.append(t("int hard session", avg=f"{run['avg_hr']:.0f}"))
+    elif r["intensity"]:
+        lines.append(t("int " + r["intensity"], pct=f"{100 * share:.0f}", hr=r["hr_limit"], avg=f"{run['avg_hr']:.0f}"))
+    if r["pace_vs_plan"]:
+        lines.append(t("pace " + r["pace_vs_plan"], pace=format_pace(pace), fast=format_pace(r["plan_pace"][0]),
+                       slow=format_pace(r["plan_pace"][1])))
+    if pd.notna(run.get("heat_slowdown_pct")) and pd.notna(run.get("air_temp_c")):
+        lines.append(t("heat review", temp=f"{run['air_temp_c']:.0f}", dew=f"{run['dew_point_c']:.0f}",
+                       pct=f"{run['heat_slowdown_pct']:.0f}", adj=format_pace(run["heat_adj_pace_s"])))
+    if r["efficiency_verdict"]:
+        lines.append(t("eff " + r["efficiency_verdict"], chg=f"{100 * abs(r['efficiency_change']):.0f}"))
+    overall = ("too hard" if r["intensity"] == "too hard" else "short" if r["distance"] == "short"
+               else "extra" if r["distance"] == "unplanned" else
+               "good" if r["distance"] in ("as planned", "long") and r["intensity"] in ("easy", "hard session") else "ok")
+
+    slower = t("slower by", pct=f"{run['heat_slowdown_pct']:.0f}") if pd.notna(run.get("heat_slowdown_pct")) else ""
+    rows = [(t("row max hr"), f"{run['max_hr']:.0f} bpm" if pd.notna(run.get("max_hr")) else "-"),
+            (t("row easy time"), f"{format_duration(share * run['moving_time_s'])} ({100 * share:.0f}%)"
+             if share is not None else "-"),
+            (t("row heat adj"), f"{format_pace(run['heat_adj_pace_s'])} /km" if pd.notna(run.get("heat_adj_pace_s")) else "-"),
+            (t("row gap"), f"{format_pace(run['avg_gap_s_per_km'])} /km" if pd.notna(run.get("avg_gap_s_per_km")) else "-"),
+            (t("row cadence"), f"{run['avg_cadence']:.0f} spm" if pd.notna(run.get("avg_cadence")) else "-"),
+            (t("row ascent"), f"{run['ascent_m']:.0f} m" if pd.notna(run.get("ascent_m")) else "-"),
+            (t("row te"), f"{run['aerobic_te']:.1f}" if pd.notna(run.get("aerobic_te")) else "-"),
+            (t("row weather"), f"{run['air_temp_c']:.0f}°C · {t('dew')} {run['dew_point_c']:.0f}°C · {slower}"
+             if pd.notna(run.get("air_temp_c")) else "-"),
+            (t("row efficiency"), f"{r['efficiency']:.3f}" + (f" ({t('usual short')} {r['efficiency_base']:.3f})"
+                                                              if r["efficiency_base"] else "") if r["efficiency"] else "-"),
+            (t("row calories"), f"{run['calories']:.0f} kcal" if pd.notna(run.get("calories")) else "-")]
+    stats_html = "".join(f"<div class='stat'><div class='v'>{v}<small>{u}</small></div><div class='l'>{l}</div></div>"
+                         for v, u, l in stats)
+    html(f"<div class='review'><div class='eyebrow'>{t('run analysis')} · {escape(run['title'])} · "
+         f"{run['start_time']:%H:%M}</div><div class='stats'>{stats_html}</div>"
+         f"<div class='verdict{' bad' if overall == 'too hard' else ''}'>{t('overall ' + overall)}</div>"
+         f"<ul>{''.join(f'<li>{line}</li>' for line in lines)}</ul>"
+         f"<table>{''.join(f'<tr><td>{a}</td><td>{b}</td></tr>' for a, b in rows)}</table></div>")
+    split_table(run)
+
+
+def split_table(run):
+    """Per-km distance, time, pace and heart rate from the run's activity file, with a pace bar."""
+    fit_file = run.get("fit_file")
+    path = DATA_DIR / ACTIVITY_DIR / str(fit_file)
+    if pd.isna(fit_file) or not path.exists():
+        st.caption(t("no splits"))
+        return
+    table = load_splits(path)
+    if table.empty:
+        st.caption(t("no splits"))
+        return
+    fastest, slowest = table["pace_s"].min(), table["pace_s"].max()
+    rows = []
+    for split in table.itertuples():
+        hard = pd.notna(split.avg_hr) and split.avg_hr > EASY_HR_MAX
+        # A longer bar is a slower kilometre: the fastest gets 30%, the slowest 100%.
+        width = 100 if slowest == fastest else 30 + 70 * (split.pace_s - fastest) / (slowest - fastest)
+        rows.append(f"<tr><td>{split.km}</td><td>{split.distance_km:.2f}</td><td>{format_pace(split.time_s) if split.time_s < 3600 else format_duration(split.time_s)}</td>"
+                    f"<td>{format_pace(split.pace_s)}<span class='bar{' hard' if hard else ''}' "
+                    f"style='width:{width:.0f}%'></span></td>"
+                    f"<td>{f'{split.avg_hr:.0f}' if pd.notna(split.avg_hr) else '-'}</td></tr>")
+    head = "".join(f"<th>{t(k)}</th>" for k in ("split km", "split dist", "split time", "split pace", "split hr"))
+    html(f"<div class='splits'><div class='eyebrow'>{t('splits')}</div>"
+         f"<table><tr>{head}</tr>{''.join(rows)}</table>"
+         f"<div class='hint'>{t('split note', hr=EASY_HR_MAX)}</div></div>")
 
 
 def goal_inputs(prefix, program=None):
@@ -923,6 +1170,7 @@ def goal_inputs(prefix, program=None):
         c2.caption(t("estimate today", est=format_duration(estimate["estimate_now_s"])))
     else:
         c2.caption(t("mark a race"))
+    milestone = milestone_input(key, program, distance_km, target_time)
     c3, c4 = st.columns(2)
     state.setdefault(key("start"), pd.Timestamp(base["start_date"]).date())
     start = c3.date_input(t("start date"), key=key("start"))
@@ -933,12 +1181,46 @@ def goal_inputs(prefix, program=None):
         saved = pd.Timestamp(base["race_date"]).date() if base.get("race_date") else start + pd.Timedelta(weeks=16)
         state.setdefault(key("race"), saved)
         race_date = c4.date_input(t("race date"), min_value=start, key=key("race"))
+    elif milestone:   # its own widget: one that changes label and limits loses its value
+        state.setdefault(key("final weeks"), weeks if (program or {}).get("milestone") else
+                         programs.final_weeks(distance_km))
+        weeks = c4.number_input(t("final weeks"), min_value=1, max_value=40, step=1, key=key("final weeks"))
     else:
         state.setdefault(key("weeks"), weeks)
         weeks = c4.number_input(t("length weeks"), min_value=4, max_value=40, step=1, key=key("weeks"))
     return {"distance": distance, "distance_km": distance_km, "target_time": target_time,
             "race_date": race_date.isoformat() if race_date else None, "start_date": start.isoformat(),
-            "weeks": int(weeks)}
+            "weeks": int(weeks), "milestone": milestone}
+
+
+def milestone_input(key, program, distance_km, target_time):
+    """The milestone checkbox and its length, for a goal with a target; returns the milestone or None.
+
+    An edited program keeps its milestone's progress (passed, missed tests) while
+    the distance and target stay the same.
+    """
+    milestone_km = programs.milestone_distance(distance_km)
+    if not target_time or milestone_km is None:
+        return None
+    estimate = goal_gap(known, {"distance_km": milestone_km, "target_time": None, "date": None}, gain, today)
+    suggested = programs.suggest_milestone(distance_km, target_time, estimate and estimate["estimate_now_s"])
+    saved = (program or {}).get("milestone")
+    same = saved and saved["distance_km"] == suggested["distance_km"] and saved["target_time"] == suggested["target_time"]
+    state.setdefault(key("milestone"), bool(saved) if program else True)
+    m1, m2 = st.columns(2)
+    if not m1.checkbox(t("use milestone", dist=t("dist " + distance_name(milestone_km))), key=key("milestone")):
+        return None
+    state.setdefault(key("milestone weeks"), saved["weeks"] if same else suggested["weeks"])
+    weeks = m2.number_input(t("milestone weeks"), min_value=1, max_value=40, step=1, key=key("milestone weeks"))
+    target_s = parse_time(suggested["target_time"])
+    hint = t("milestone hint", dist=t("dist " + distance_name(milestone_km)), target=suggested["target_time"],
+             pace=format_pace(target_s / milestone_km))
+    if estimate:
+        hint += " " + t("milestone estimate", est=format_duration(estimate["estimate_now_s"]),
+                        weeks=f"{weeks_needed(estimate['estimate_now_s'], target_s, REALISTIC_GAIN) or 0:.0f}",
+                        gain=f"{100 * REALISTIC_GAIN:g}")
+    m1.caption(hint)
+    return {**(saved if same else {}), **suggested, "weeks": int(weeks)}
 
 
 def default_name(values):
@@ -969,7 +1251,7 @@ def programs_page():
         if st.button(t("save program"), type="primary"):
             program = programs.new_program(name.strip() or default_name(values), values["distance_km"],
                                            values["target_time"], values["race_date"], values["start_date"],
-                                           values["weeks"])
+                                           values["weeks"], values["milestone"])
             programs.add(DATA_DIR, store, program, make_active)
             st.query_params.update({"page": "programs", "program": program["id"]})
             st.rerun()
@@ -989,7 +1271,9 @@ def program_detail(program):
         programs.save(DATA_DIR, store)
         st.rerun()
 
-    goal_summary(programs.goal(program), current_week(weeks)["plan"])
+    milestone_box(program, "detail", weeks)
+    if not programs.test_missed(program, covered):   # until you choose, the old test date means nothing
+        goal_summary(programs.current_goal(program), current_week(weeks)["plan"])
 
     st.markdown(f"### {t('calendar')}")
     st.caption(t("calendar hint"))
@@ -1001,12 +1285,12 @@ def program_detail(program):
     if day is None:
         st.caption(t("pick a day"))
     else:
-        render_day(day, program["name"])
         ran = runs_by_day.get_group(selected) if selected in runs_by_day.groups else None
         if ran is not None:
-            km = ran["distance_km"].sum()
-            pace = ran["moving_time_s"].sum() / km if km else None
-            note(t("you ran", km=f"{km:.1f}", pace=format_pace(pace) if pace else "-", hr=f"{ran['avg_hr'].mean():.0f}"))
+            for _, run in ran.iterrows():
+                run_analysis(run, day)
+            st.markdown(f"**{t('planned menu')}**")
+        render_day(day, race_name(program, day.day))
 
     st.markdown(f"### {t('all weeks')}")
     weeks_table(weeks)
@@ -1020,7 +1304,8 @@ def program_detail(program):
         if st.button(t("save changes"), type="primary"):
             programs.update(DATA_DIR, store, program["id"], name=name.strip() or program["name"],
                             distance_km=values["distance_km"], target_time=values["target_time"],
-                            race_date=values["race_date"], start_date=values["start_date"], weeks=values["weeks"])
+                            race_date=values["race_date"], start_date=values["start_date"], weeks=values["weeks"],
+                            milestone=values["milestone"])
             st.rerun()
     with st.expander(t("delete program")):
         sure = st.checkbox(t("delete sure"), key=f"delete-{program['id']}")
@@ -1033,6 +1318,9 @@ def program_detail(program):
 
 # ---- programs: what you train for (data/programs.json); the active one plans the home page ----
 store = programs.migrate(DATA_DIR, load_goal(), PLAN_START)   # the first time, your old goal becomes a program
+for p in store["programs"]:   # a race that passes a milestone moves its program to stage 2
+    if programs.stage(p) == "milestone" and (passed := programs.find_pass(p, known)):
+        programs.update(DATA_DIR, store, p["id"], milestone={**p["milestone"], "passed": passed})
 program = programs.active(store)
 html("<div class='nav'>" + "".join(
     link(t("nav " + key), page=key).replace("<a ", f"<a class='{'on' if page == key else ''}' ")
@@ -1043,8 +1331,10 @@ if page == "programs":
     st.stop()
 
 # Home: the active program. Without one (or once it has ended) a plan with no target, from today.
-if program and programs.status(program, today) != "finished":
-    goal = programs.goal(program)
+if program and programs.is_live(program, today):
+    goal = programs.current_goal(program)
+    if programs.stage(program) == "milestone":
+        goal = {**goal, "name": milestone_label(program)}
     weeks = program_plan(program)
 else:
     goal = {**GOAL_RACE, "target_time": None, "date": None}
@@ -1067,13 +1357,15 @@ deep_slot = st.container()
 with goal_slot:
     st.subheader(t("active program"))
     planned_now = sum(w.distance_km for w in plan["workouts"])
-    if program and programs.status(program, today) != "finished":
+    if program and programs.is_live(program, today):
         html(f"<div class='program'><div class='name'>{escape(program['name'])}</div>"
              f"<div class='meta'>{program_line(program)} · {week_of(program, weeks)}</div>"
              f"<div style='margin-top:6px'>{link(t('open program') + ' →', page='programs', program=program['id']).replace('<a ', '<a class=more ')}</div></div>")
+        milestone_box(program, "home", weeks)
     else:
         note(t("no active program") + " " + link(t("make program") + " →", page="programs").replace("<a ", "<a class=more "))
-    peak = goal_summary(goal, plan)
+    missed = program and programs.is_live(program, today) and programs.test_missed(program, covered)
+    peak = None if missed else goal_summary(goal, plan)
     if peak:
         share = min(1.0, planned_now / peak)
         html(f"<div class='bar'><span style='width:{100 * share:.0f}%'></span></div>"

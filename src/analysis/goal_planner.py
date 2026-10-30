@@ -2,7 +2,7 @@
 
 A rough, fully explained estimate - not a race prediction you should bet on:
   1. Start from your most recent race (time T0, distance D0).
-  2. Convert it to the goal distance with Riegel:    T = T0 x (D / D0) ^ 1.06
+  2. Convert it to the goal distance with Riegel:    T = T0 x (D / D0) ^ 1.06 (1.08 to or from a marathon)
   3. Adjust for fitness gained since that race:      T_now = T x (E_race / E_now)
      E = efficiency (speed / HR) of your training runs - faster at the same HR
      means faster at the same effort, so race time scales with 1 / E.
@@ -23,8 +23,14 @@ from src.analysis.races import race_mask
 from src.units import format_duration
 
 RIEGEL_EXPONENT = 1.06
+# Vickers 2016 (2,303 recreational runners): Riegel fits well up to the half marathon,
+# but predicts the marathon too fast (10+ min for half of runners). 1.08 is a bit
+# better there; treat marathon predictions as optimistic all the same.
+MARATHON_EXPONENT = 1.08
 LOOKBACK = pd.Timedelta(weeks=4)
-REALISTIC_GAIN = 0.01   # more than ~1% a week, sustained, is unlikely
+# Recreational runners on well-run programmes improved 10K by 5.0% in 10 weeks (Muñoz 2014)
+# and 6.2% in 12 weeks (Nuuttila 2022): about 0.5% a week. Newer runners may gain faster.
+REALISTIC_GAIN = 0.005
 
 # Steps between "sub" targets in the dropdown, in minutes, per race distance (km).
 TARGET_STEP_MIN = {5.0: 2, 10.0: 5, 21.1: 10, 42.2: 15}
@@ -36,13 +42,22 @@ TARGET_STEP_MIN = {5.0: 2, 10.0: 5, 21.1: 10, 42.2: 15}
 HALF_PEAK_KM = [("3:20", 26), ("3:10", 29), ("3:00", 33), ("2:50", 38), ("2:40", 44),
                 ("2:30", 50), ("2:20", 56), ("2:10", 62), ("2:00", 68)]
 # Other distances: their target is first converted to a half-marathon time (Riegel),
-# then the half's peak is scaled by this factor.
+# then the half's peak is scaled by this factor. Check for 10 km: sub 1:10 gives
+# ~35 km/week, in line with Suwankan 2024 (56-80 min 10 km runners: 30-59 km/week).
 PEAK_SCALE = {5.0: 0.6, 10.0: 0.75, 21.1: 1.0, 42.2: 1.15}
+# Suwankan 2024: 10 km runners at 56-80 min mostly ran 30-59 km/week, so a 10 km target
+# in that range builds to at least 30 (km, (fastest, slowest) target in seconds).
+TEN_K_FLOOR_KM, TEN_K_FLOOR_RANGE = 30, (56 * 60, 80 * 60)
+
+
+def riegel_exponent(km_a, km_b):
+    """Exponent for converting a time between two distances."""
+    return MARATHON_EXPONENT if max(km_a, km_b) > 21.1 else RIEGEL_EXPONENT
 
 
 def peak_km(distance_km, target_s):
     """Weekly distance the plan builds up to for this target (km)."""
-    half_equivalent = target_s * (21.1 / distance_km) ** RIEGEL_EXPONENT
+    half_equivalent = target_s * (21.1 / distance_km) ** riegel_exponent(21.1, distance_km)
     table = sorted((parse_time(t + ":00"), km) for t, km in HALF_PEAK_KM)   # fastest first
     times, kms = zip(*table)
     if half_equivalent <= times[0]:
@@ -54,7 +69,10 @@ def peak_km(distance_km, target_s):
         share = (half_equivalent - times[i - 1]) / (times[i] - times[i - 1])
         km = kms[i - 1] + share * (kms[i] - kms[i - 1])
     scale = PEAK_SCALE[min(PEAK_SCALE, key=lambda d: abs(d - distance_km))]
-    return round(km * scale)
+    peak = round(km * scale)
+    if abs(distance_km - 10.0) < 0.1 and target_s <= TEN_K_FLOOR_RANGE[1]:
+        peak = max(peak, TEN_K_FLOOR_KM)
+    return peak
 
 
 def weeks_needed(estimate_s, target_s, weekly_gain):
@@ -96,7 +114,7 @@ def goal_gap(runs, goal, weekly_gain, today):
     last = race_runs.sort_values("start_time").iloc[-1]
 
     goal_km = goal["distance_km"]
-    riegel = last["duration_s"] * (goal_km / last["distance_km"]) ** RIEGEL_EXPONENT
+    riegel = last["duration_s"] * (goal_km / last["distance_km"]) ** riegel_exponent(goal_km, last["distance_km"])
     e_race = efficiency_before(runs, last["start_time"])
     e_now = efficiency_before(runs, pd.Timestamp(today) + pd.Timedelta(days=1))
     now_s = riegel * (e_race / e_now) if e_race and e_now else riegel

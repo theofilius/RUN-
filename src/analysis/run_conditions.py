@@ -56,6 +56,9 @@ def next_hours(forecast, now, hours=6):
     return rows
 
 # US EPA Air Quality Index categories: (upper limit, name).
+# No study sets a safe level for running: WHO limits assume resting breathing, and a
+# runner takes in particles 5-9x faster (Zoladz 2021; Havenga 2026). So the dashboard
+# warns from "unhealthy for sensitive groups" (above 100) instead of waiting for 150.
 AQI_LEVELS = [
     (50, "good"),
     (100, "moderate"),

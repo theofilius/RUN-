@@ -26,11 +26,14 @@ RACES = {
 }
 
 # A run counts as "easy" if its average HR is at or below this share of MAX_HR.
-# 0.80 x 196 = 157 bpm. This is an assumption; real zones from Garmin would be better.
-EASY_HR_FRACTION = 0.80
+# 0.78 x 196 = 153 bpm. Lab studies put the top of easy at ~79% (Nuuttila 2025) and
+# ~75% (Benitez-Munoz 2025) of max HR for men, +/-5% between people; at 80% almost
+# half of runners are already above it. A lab or field test would beat any percentage.
+EASY_HR_FRACTION = 0.78
 EASY_HR_MAX = round(EASY_HR_FRACTION * MAX_HR)  # whole bpm, like the watch shows
 
-# Share of weekly running time that should be easy (the "80/20" rule).
+# Share of weekly running time that should be easy (the "80/20" rule); from 75% a week
+# counts as on target, the share recreational programmes used (Boullosa 2020, Muñoz 2014).
 TARGET_EASY_PCT = 80
 
 # Heart rate used to express fitness as a pace ("pace @ 160 bpm").
@@ -38,7 +41,8 @@ TARGET_EASY_PCT = 80
 REFERENCE_HR = 160
 
 # Planner: every Nth week is a step-back week - distance drops about 25% so your
-# body can absorb the weeks before it (common coaching practice). 0 = off.
+# body can absorb the weeks before it (Sandbakk 2025: every 3-4 weeks, 25-35% less;
+# Filipas 2022 and Nuuttila 2022 used the same rhythm with runners). 0 = off.
 STEP_BACK_EVERY = 4
 
 # Your next goal race - the default only. Choose distance, "sub" target and race
@@ -62,10 +66,10 @@ PLAN_WEEKS_AHEAD = 4
 RUNS_PER_WEEK = 6
 START_RUNS_PER_WEEK = 4   # runs in the first week; one is added each week after
 
-# Planner: weekly distance growth once RUNS_PER_WEEK is reached. Every week also
-# stays under +30% of the previous 7 days (Nielsen 2014). 0.10 = cautious,
-# 0.15 = middle, up to 0.29 = most aggressive still under the 30% limit.
-WEEKLY_GROWTH = 0.15
+# Planner: weekly distance growth once RUNS_PER_WEEK is reached: +10% a week, as in the
+# recreational programme that improved 10K most (Nuuttila 2022). Every week also stays
+# under +30% of the previous 7 days (Nielsen 2014: 10-30% was no riskier than <10%).
+WEEKLY_GROWTH = 0.10
 
 # Planner: which days you like to run. The long run goes on LONG_RUN_DAY,
 # other runs fill OTHER_RUN_DAYS in this order. 0 = Monday ... 6 = Sunday.

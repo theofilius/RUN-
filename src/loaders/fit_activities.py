@@ -16,6 +16,7 @@ the folder and a file is only read again when it changes.
 from pathlib import Path
 
 import pandas as pd
+from numpy import interp as np_interp
 from fit_tool.fit_file import FitFile
 from fit_tool.profile.messages.record_message import RecordMessage
 from fit_tool.profile.messages.session_message import SessionMessage
@@ -26,6 +27,9 @@ ACTIVITY_DIR = "activities"
 ZONES_CACHE = "zones_cache.csv"
 MATCH_WINDOW = pd.Timedelta(minutes=10)
 MAX_SAMPLE_GAP_S = 10   # a longer gap between samples is a pause, not running time
+SPLIT_KM = 1.0
+MIN_LAST_SPLIT_KM = 0.05    # a shorter leftover at the end is GPS noise, not a split
+SPLITS_DIR = "splits"       # cached splits, one CSV per activity file
 
 
 def to_local(ms):
@@ -56,6 +60,57 @@ def time_in_zones(path, easy_hr_max=EASY_HR_MAX):
         "zone_easy_s": easy,
         "fit_file": Path(path).name,
     }
+
+
+def splits(path, split_km=SPLIT_KM):
+    """Per-kilometre splits of one activity file: km, distance_km, time_s, pace_s, avg_hr.
+
+    Time is moving time (pauses longer than MAX_SAMPLE_GAP_S do not count), and a
+    split ends exactly at each whole km (interpolated between samples). The last,
+    shorter split is kept unless it is under MIN_LAST_SPLIT_KM.
+    """
+    times, metres, heart_rates = [], [], []
+    for record in FitFile.from_file(str(path)).records:
+        message = record.message
+        if isinstance(message, RecordMessage) and message.timestamp and message.distance is not None:
+            times.append(message.timestamp / 1000)
+            metres.append(message.distance)
+            heart_rates.append(message.heart_rate)
+    columns = ["km", "distance_km", "time_s", "pace_s", "avg_hr"]
+    if len(times) < 2:
+        return pd.DataFrame(columns=columns)
+
+    samples = pd.DataFrame({"t": times, "km": pd.Series(metres) / 1000, "hr": heart_rates}).sort_values("t")
+    samples["km"] = samples["km"].cummax()          # GPS distance never runs backwards
+    samples["moving"] = samples["t"].diff().fillna(0).clip(upper=MAX_SAMPLE_GAP_S).cumsum()
+
+    total_km = samples["km"].iloc[-1]
+    edges = [i * split_km for i in range(int(total_km // split_km) + 1)]
+    if total_km - edges[-1] >= MIN_LAST_SPLIT_KM:
+        edges.append(total_km)
+    # Moving time at each edge, interpolated on distance.
+    at_edge = np_interp(edges, samples["km"].values, samples["moving"].values)
+
+    rows = []
+    for i in range(1, len(edges)):
+        lo, hi = edges[i - 1], edges[i]
+        seconds = at_edge[i] - at_edge[i - 1]
+        hr = samples.loc[(samples["km"] > lo) & (samples["km"] <= hi), "hr"].dropna()
+        rows.append({"km": i, "distance_km": hi - lo, "time_s": seconds, "pace_s": seconds / (hi - lo),
+                     "avg_hr": hr.mean() if len(hr) else None})
+    return pd.DataFrame(rows, columns=columns)
+
+
+def load_splits(path):
+    """splits(path), kept in SPLITS_DIR next to the file so it is read only once."""
+    path = Path(path)
+    cache = path.parent / SPLITS_DIR / f"{path.stem}.csv"
+    if cache.exists() and cache.stat().st_mtime >= path.stat().st_mtime:
+        return pd.read_csv(cache)
+    table = splits(path)
+    cache.parent.mkdir(exist_ok=True)
+    table.to_csv(cache, index=False)
+    return table
 
 
 def load_time_in_zones(activity_dir):

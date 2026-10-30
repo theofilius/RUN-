@@ -105,6 +105,97 @@ SOURCES = {
         "doi": None,
         "finding": "Race time scales with distance as T2 = T1 x (D2 / D1)^1.06 across endurance events.",
     },
+    "nuuttila2025": {
+        "cite": "Nuuttila et al. 2025, Eur J Appl Physiol 125:2161-2171",
+        "doi": "10.1007/s00421-025-05748-8",
+        "finding": "165 recreational runners, lab lactate tests: the first lactate threshold (top of 'easy') "
+                   "was at 78.9% (men) / 83.6% (women) of measured max HR, SD about 4-5%. At 80% of max HR, "
+                   "43% of runners were already above it; <=70% keeps almost everyone easy.",
+    },
+    "sandbakk2025": {
+        "cite": "Sandbakk et al. 2025, Sports Med Open 11:45",
+        "doi": "10.1186/s40798-025-00848-3",
+        "finding": "12 world-class Norwegian endurance coaches: mostly low-intensity training, 2-3 hard days "
+                   "a week, an easier week every 3-4 weeks (1-2 fewer sessions, 25-35% less volume); "
+                   "tapers keep frequency and shorten sessions. Elite athletes, coaches' accounts.",
+    },
+    "filipas2022": {
+        "cite": "Filipas et al. 2022, Scand J Med Sci Sports 32:498-511",
+        "doi": "10.1111/sms.14101",
+        "finding": "60 well-trained runners, 16 weeks of 3 hard + 1 easier week (-30 to -40%): all groups "
+                   "improved 5 km; tempo-heavy (pyramidal) first, then interval-heavy (polarized) improved "
+                   "most (-1.5%), though below the test's smallest detectable change.",
+    },
+    "boullosa2020": {
+        "cite": "Boullosa et al. 2020, Sports 8(3):35",
+        "doi": "10.3390/sports8030035",
+        "finding": "Review for recreational runners: 1-2 high-intensity sessions a week with >=75% of volume "
+                   "easy, 1-2 strength sessions a week; weekly distance is the main injury factor; the "
+                   "'10% rule' is anecdotal, without robust support.",
+    },
+    "nuuttila2022ind": {
+        "cite": "Nuuttila et al. 2022, Med Sci Sports Exerc 54(10):1690-1701",
+        "doi": "10.1249/MSS.0000000000002968",
+        "finding": "30 recreational runners: volume +10% of baseline per hard week, every 3rd week -25%. "
+                   "Adjusting load twice a week from recovery and the heart rate-running speed index "
+                   "improved 10 km more (-6.2% vs -2.9% over 12 weeks) and left fewer low responders.",
+    },
+    "nuuttila2022block": {
+        "cite": "Nuuttila et al. 2022, Med Sci Sports Exerc 54(5):851-860",
+        "doi": "10.1249/MSS.0000000000002861",
+        "finding": "30 recreational runners, 2 weeks of either 5 interval sessions a week or +70% easy "
+                   "volume: both improved 3000 m about 2%, but the interval block raised muscle soreness and "
+                   "lowered readiness to train; more soreness and fatigue went with smaller gains.",
+    },
+    "suwankan2024": {
+        "cite": "Suwankan et al. 2024, J Hum Sport Exerc 19(1):193-201",
+        "doi": "10.14198/jhse.2024.191.17",
+        "finding": "60 Thai recreational runners: weekly distance predicted 10 km time best, then race "
+                   "experience, training days and years running (57% explained). Runners at 56-80 min "
+                   "mostly ran 30-59 km/week on 4-5 days. Cross-sectional.",
+    },
+    "vickers2016": {
+        "cite": "Vickers & Vertosick 2016, BMC Sports Sci Med Rehabil 8:26",
+        "doi": "10.1186/s13102-016-0052-y",
+        "finding": "2,303 recreational runners: Riegel predicted well up to the half marathon but the "
+                   "marathon too fast (10+ min for half of runners, even with 1.08). Tempo runs went "
+                   "with ~6-7% faster 10 km, intervals ~2-4%, more weekly distance faster at every distance.",
+    },
+    "zoladz2021": {
+        "cite": "Zoladz & Nieckarz 2021, PeerJ 9:e11562",
+        "doi": "10.7717/peerj.11562",
+        "finding": "Model: running breathes 62-115 L/min vs 8 L/min at rest, so an hour of running at "
+                   "PM10 50 ug/m3 deposits as much as an hour of rest at 251-466 ug/m3 (5-9x the rate).",
+    },
+    "havenga2026": {
+        "cite": "Havenga et al. 2026, Int J Environ Health Res 36(7):1866-1874",
+        "doi": "10.1080/09603123.2025.2605164",
+        "finding": "PM2.5 at athletics meets 29-133 ug/m3, with 1-minute spikes to 385 near industry and "
+                   "smoke from food stalls. No short-term PM2.5 limit for exercise exists; WHO's 24-hour "
+                   "guideline (15 ug/m3) assumes resting breathing.",
+    },
+    "zhu2021": {
+        "cite": "Zhu et al. 2021, Sci Rep 11:19249",
+        "doi": "10.1038/s41598-021-98844-6",
+        "finding": "368 adults walking a busy road in Xi'an: heart rate rose with PM2.5 and risk thresholds "
+                   "fell between 81 and 168 ug/m3, lower for middle-aged people and BMI outside 18.5-24. "
+                   "Walking, not running; risk partly self-reported.",
+    },
+    "munoz2014": {
+        "cite": "Muñoz et al. 2014, Int J Sports Physiol Perform 9:265-272",
+        "doi": "10.1123/IJSPP.2012-0350",
+        "finding": "30 recreational runners (10K ~39 min), 10 weeks, 5-6 runs and 2 hard sessions a week: "
+                   "~77% of time below the first threshold (achieved 73%) vs ~46% both improved 10K (5.0% vs "
+                   "3.6%, not significant); the 6 who kept 78% easy improved 7.0% vs 1.6% for the 6 who kept "
+                   "32% (d = 1.29). Many runners did not keep to the prescribed intensities.",
+    },
+    "nielsen2020": {
+        "cite": "Nielsen et al. 2020, Br J Sports Med 54(1):51-57",
+        "doi": "10.1136/bjsports-2019-100858",
+        "finding": "A session counts as done within +/-10% of its prescribed distance or time. In 4 trials of "
+                   "running programmes (56-839 runners, 4-24 weeks) only 0-21% did every session that way; "
+                   "the authors ask for an 'acceptable threshold' set in advance but give no number.",
+    },
     "own": {
         "cite": "Planner default",
         "doi": None,

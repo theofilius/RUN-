@@ -10,7 +10,7 @@ from fit_tool.profile.messages.workout_step_message import WorkoutStepMessage
 from fit_tool.profile.profile_type import FileType, Manufacturer, WorkoutStepTarget
 
 from src.export.fit_workout import MAX_NAME, MAX_NOTES, shorten, workout_fit_bytes
-from src.loaders.fit_activities import add_time_in_zones, time_in_zones
+from src.loaders.fit_activities import add_time_in_zones, load_splits, splits, time_in_zones
 from src.planner.plan_generator import interval_run, long_run
 
 EFFICIENCY = 0.77
@@ -86,3 +86,36 @@ def test_runs_are_matched_to_activity_files(tmp_path, runs):
 
 def test_no_activity_folder_leaves_runs_unchanged(tmp_path, runs):
     assert add_time_in_zones(runs, tmp_path / "missing").equals(runs)
+
+
+def write_run(path, start, seconds, metres_per_s, heart_rate=150):
+    """An activity .fit with distance: one record per second at a steady speed."""
+    start_ms = round(start.timestamp() * 1000)
+    file_id = FileIdMessage()
+    file_id.type = FileType.ACTIVITY
+    file_id.manufacturer = Manufacturer.DEVELOPMENT.value
+    file_id.product = 0
+    file_id.time_created = start_ms
+    records = []
+    for i in range(seconds + 1):
+        record = RecordMessage()
+        record.timestamp = start_ms + i * 1000
+        record.distance = i * metres_per_s
+        record.heart_rate = heart_rate
+        records.append(record)
+    builder = FitFileBuilder(auto_define=True)
+    builder.add(file_id)
+    builder.add_all(records)
+    builder.build().to_file(str(path))
+
+
+def test_splits_are_whole_kilometres_plus_the_rest(tmp_path):
+    # 2.5 km at 2.5 m/s = 6:40/km, 1000 s in all.
+    write_run(tmp_path / "run.fit", pd.Timestamp("2026-10-29 19:00", tz="Asia/Jakarta"), 1000, 2.5)
+    table = splits(tmp_path / "run.fit")
+    assert list(table["km"]) == [1, 2, 3]
+    assert list(table["distance_km"].round(2)) == [1.0, 1.0, 0.5]
+    assert all(abs(p - 400) < 1 for p in table["pace_s"])   # 400 s/km in every split
+    assert abs(table["time_s"].sum() - 1000) < 1
+    assert (load_splits(tmp_path / "run.fit")["km"] == table["km"]).all()
+    assert (tmp_path / "splits" / "run.csv").exists()          # cached for next time

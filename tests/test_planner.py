@@ -249,3 +249,36 @@ def test_rest_after_the_goal_race_in_its_own_week(runs, no_races):
         assert pd.Timestamp(after).date() not in run_days
     rest = next(d for d in race_week["plan"]["days"] if str(d.day) == "2027-01-23")
     assert rest.info == {"rest": "post race", "day": 1}
+
+
+def test_a_short_race_needs_less_recovery(runs, no_races):
+    race = pd.Timestamp("2026-10-23 06:00")                 # 3 days before the week
+    week_types = {}
+    for km in (5.0, 21.1):
+        with_race = pd.concat([runs, race_run(race, km=km)], ignore_index=True).sort_values("start_time")
+        with_race["garmin_race"] = with_race["start_time"] == race
+        week_types[km] = build_plan(with_race, "2026-10-26", runs_from=5)["week_type"]
+    assert week_types == {5.0: "build", 21.1: "recovery"}  # hard from day 2 after a 5K, day 4 after a half
+    assert safety_rules.recovery_days(21.1) == safety_rules.RECOVERY_DAYS
+    assert safety_rules.rest_days(5.0) < safety_rules.rest_days(21.1)
+
+
+def test_a_milestone_test_has_no_two_week_taper(runs, no_races):
+    goal = {**NO_GOAL, "distance_km": 5.0, "target_time": "0:33:34", "date": "2026-11-21", "taper_weeks": 1}
+    types = [w["plan"]["week_type"] for w in month(runs, goal=goal, weeks=4)]
+    assert "taper" not in types and types[3] == "race week"
+
+
+def test_a_milestone_stage_has_two_hard_sessions_apart(runs, no_races):
+    goal = {**NO_GOAL, "distance_km": 5.0, "target_time": "0:33:34", "date": "2026-12-05",
+            "taper_weeks": 1, "hard_sessions": 2}
+    weeks = month(runs, goal=goal, weeks=6)
+    for week in weeks:
+        hard = sorted(w.day for w in week["plan"]["workouts"] if w.is_hard)
+        assert all((b - a).days >= 2 for a, b in zip(hard, hard[1:]))
+        if week["plan"]["week_type"] == "build":
+            assert {w.kind for w in week["plan"]["workouts"] if w.is_hard} == {"tempo", "interval"}
+    assert any(w["plan"]["week_type"] == "build" for w in weeks)
+    race_week = weeks[-1]["plan"]
+    sharpener = [w for w in race_week["workouts"] if w.info.get("sharpener")]
+    assert len(sharpener) == 1 and (pd.Timestamp("2026-12-05").date() - sharpener[0].day).days in (2, 3, 4)

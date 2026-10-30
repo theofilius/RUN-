@@ -83,8 +83,8 @@ TEXT = {
     "min short": ("min", "mnt"),
     "hint hr": ("Roughly {fast}–{slow} /km. Follow heart rate, not pace: walk a minute if it climbs above the range.",
                 "Kira-kira {fast}–{slow} /km. Ikuti detak jantung, bukan pace: jalan semenit kalau naik melewati batas."),
-    "hint interval": ("{reps} repeats of 800 m, with a 400 m slow jog between. Same pace every repeat.",
-                      "{reps} repetisi 800 m, jogging pelan 400 m di antaranya. Pace sama di setiap repetisi."),
+    "hint interval": ("{reps} repeats of {m} m, with a 400 m slow jog between. Same pace every repeat.",
+                      "{reps} repetisi {m} m, jogging pelan 400 m di antaranya. Pace sama di setiap repetisi."),
     "hint tempo": ("The red part ({km} km) is comfortably hard: short phrases, not full sentences.",
                    "Bagian merah ({km} km) agak berat tapi terkendali: masih bisa bicara pendek, bukan kalimat panjang."),
     "about min": ("about {min} min", "sekitar {min} menit"),
@@ -98,6 +98,12 @@ TEXT = {
                       "<b>{reps} × 800 m di {fast}–{slow} /km</b>, jogging pelan 400 m di antaranya"),
     "strides": ("After the easy part: 6 × 20 s strides - quick but relaxed, not a sprint.",
                 "Setelah bagian santai: 6 × 20 detik strides - cepat tapi rileks, bukan sprint."),
+    "sharpener": ("Race-week sharpener: short repeats at goal pace keep your speed while the distance drops "
+                  "(a taper cuts volume, not intensity). Quick and relaxed, not all-out.",
+                  "Penajaman minggu race: repetisi pendek di pace target menjaga kecepatan saat jarak dikurangi "
+                  "(taper memangkas volume, bukan intensitas). Cepat dan rileks, bukan habis-habisan."),
+    "second hard": ("The week's second hard session (milestone stage): at least two days after the other one.",
+                    "Sesi keras kedua minggu ini (tahap milestone): minimal dua hari dari sesi keras lainnya."),
     "finish": ("The last {km} km before the cool-down at goal pace {pace}/km.",
                "{km} km terakhir sebelum pendinginan di pace target {pace}/km."),
     "fuel": ("Over an hour: bring water with electrolytes and 30-60 g carbs per hour.",
@@ -122,16 +128,19 @@ TEXT = {
     "weather at": ("{start}-{end}: {sky}{temp}°C, rain {rain}%", "{start}-{end}: {sky}{temp}°C, hujan {rain}%"),
     "air bad": ("Air is unhealthy (AQI {aqi}) - a treadmill or a shorter run is wiser today.",
                 "Udara tidak sehat (AQI {aqi}) - lebih baik treadmill atau lari lebih pendek hari ini."),
-    "air sensitive": ("Air is not great (AQI {aqi}) - pick a cleaner hour if you can.",
-                      "Udara kurang bagus (AQI {aqi}) - pilih jam yang lebih bersih kalau bisa."),
+    "air sensitive": ("Air is not great (AQI {aqi}). Running, you breathe in particles about 5x faster "
+                      "than at rest - pick a cleaner hour or keep it easy if you can.",
+                      "Udara kurang bagus (AQI {aqi}). Saat lari kamu menghirup partikel sekitar 5x lebih "
+                      "cepat daripada saat diam - pilih jam yang lebih bersih atau lari santai saja."),
     "why": ("Why this plan?", "Kenapa begini?"),
     "technical": ("Technical details", "Detail teknis (bahasa Inggris)"),
 
     # ---- week reasons ----
-    "why recovery": ("You raced {days} days before this week. After a long race, give it about two weeks of "
-                     "easy running: no hard sessions yet.",
-                     "Kamu race {days} hari sebelum minggu ini. Setelah race jarak jauh, beri waktu sekitar dua "
-                     "minggu lari santai dulu: belum ada sesi keras."),
+    "why recovery": ("You raced {days} days before this week. Muscle damage from a long race clears in about 72 h "
+                     "with rest, and hard running before that slows it: no hard sessions until day {easy}.",
+                     "Kamu race {days} hari sebelum minggu ini. Kerusakan otot setelah race jauh pulih sekitar 72 jam "
+                     "dengan istirahat, dan lari keras sebelum itu memperlambatnya: belum ada sesi keras sampai hari "
+                     "ke-{easy}."),
     "why fix easy": ("Only {pct}% of your recent running was truly easy. First make easy runs easy (heart rate "
                      "under {hr}); harder sessions come after that.",
                      "Baru {pct}% larimu belakangan ini yang benar-benar santai. Rapikan dulu lari santainya "
@@ -140,13 +149,20 @@ TEXT = {
                   "intervals take turns.",
                   "Lari santaimu sudah terkendali, jadi ada satu sesi lebih keras per minggu - tempo dan "
                   "interval bergantian."),
+    "why build two": ("Milestone stage: build weeks have two hard sessions - tempo and intervals, at least two days "
+                      "apart - to build speed for the test. Every other run stays easy so you can run them well.",
+                      "Tahap milestone: minggu build punya dua sesi keras - tempo dan interval, minimal dua hari "
+                      "terpisah - untuk membangun kecepatan menuju tes. Lari lainnya tetap santai supaya kedua sesi "
+                      "itu bisa dijalani dengan baik."),
     "why step back": ("Every 4th week is lighter, so your body can absorb the work of the weeks before.",
                       "Setiap minggu ke-4 dibuat lebih ringan supaya tubuh bisa menyerap latihan minggu-minggu "
                       "sebelumnya."),
     "why taper": ("Two weeks before your race: less distance so you arrive fresh; a little speed is kept.",
                   "Dua minggu sebelum race: jarak dikurangi supaya kamu datang segar; sedikit kecepatan tetap dijaga."),
-    "why race week": ("Race week: short and easy, and rest on the two days before.",
-                      "Minggu race: pendek dan santai, lalu istirahat dua hari sebelum race."),
+    "why race week": ("Race week: short and mostly easy, with one short sharpener at goal pace a few days out, "
+                      "and rest on the two days before.",
+                      "Minggu race: pendek dan sebagian besar santai, dengan satu sesi penajaman singkat di pace "
+                      "target beberapa hari sebelumnya, lalu istirahat dua hari sebelum race."),
     "why runs": ("{n} runs this week. One run is added each week until {target} a week - running more often "
                  "comes before running longer.",
                  "{n} lari minggu ini. Tiap minggu ditambah satu lari sampai {target} per minggu - lebih sering "
@@ -184,6 +200,8 @@ TEXT = {
                    "detak jantung lewat batas."),
     "note interval": ("Rep {i} of {n}: hard but controlled, the same pace every rep.",
                       "Repetisi {i} dari {n}: keras tapi terkendali, pace sama setiap repetisi."),
+    "note sharpen": ("Rep {i} of {n} at goal pace: quick and relaxed, not all-out.",
+                     "Repetisi {i} dari {n} di pace target: cepat dan rileks, bukan habis-habisan."),
     "note recovery": ("Slow jog or walk until your breathing settles.", "Jogging pelan atau jalan sampai napas tenang."),
     "note race pace": ("The effort you could hold on race day. Stop the block early if it feels hard.",
                        "Usaha yang bisa kamu tahan saat race. Berhenti lebih awal kalau terasa berat."),
@@ -222,10 +240,12 @@ TEXT = {
                   "sangat ambisius; pertimbangkan race yang lebih jauh atau target yang lebih longgar"),
     "build to": ("For this target the plan builds up to about <b>{peak} km a week</b>.",
                  "Untuk target ini plan naik bertahap sampai sekitar <b>{peak} km per minggu</b>."),
-    "goal too fast": ("Goal pace {pace}/km is faster than you can hold in a tempo today ({tempo}/km), so there is "
-                      "no goal-pace practice yet - it starts when your fitness catches up.",
+    "goal too fast": ("Goal pace {pace}/km is faster than you can hold in a tempo today ({tempo}/km), so long runs "
+                      "have no goal-pace finish yet - it starts when your fitness catches up. Short repeats at goal "
+                      "pace come in race week.",
                       "Pace target {pace}/km masih lebih cepat dari tempo yang bisa kamu tahan sekarang ({tempo}/km), "
-                      "jadi belum ada latihan pace target - akan mulai saat kebugaranmu menyusul."),
+                      "jadi long run belum diakhiri dengan pace target - akan mulai saat kebugaranmu menyusul. "
+                      "Repetisi pendek di pace target ada di minggu race."),
     "goal beats": ("You are already faster than this target - consider a faster one.",
                    "Kamu sudah lebih cepat dari target ini - pertimbangkan target yang lebih cepat."),
     "goal within easy": ("Goal pace {pace}/km already feels easy on short runs; the challenge is holding it for "
@@ -273,6 +293,59 @@ TEXT = {
     "program upcoming": ("not started", "belum mulai"),
     "program running": ("running", "berjalan"),
     "program finished": ("finished", "selesai"),
+    "program stopped": ("stopped", "dihentikan"),
+    "stage n": ("stage {n} of 2", "tahap {n} dari 2"),
+    "col stage": ("Stage", "Tahap"),
+    "milestone label": ("{dist} test sub {target}", "tes {dist} sub {target}"),
+    "after milestone": ("first: {label}", "pertama: {label}"),
+    "use milestone": ("Pass a {dist} milestone first", "Lulus milestone {dist} dulu"),
+    "milestone weeks": ("Stage 1: weeks to the test", "Tahap 1: minggu sampai tes"),
+    "final weeks": ("Stage 2 (weeks)", "Tahap 2 (minggu)"),
+    "milestone hint": ("Stage 1 ends with a {dist} test: your target is worth sub {target} ({pace}/km) there. "
+                       "Pass it and stage 2 trains for the goal itself.",
+                       "Tahap 1 diakhiri tes {dist}: targetmu setara sub {target} ({pace}/km) di jarak itu. "
+                       "Lulus, lalu tahap 2 melatih target utamanya."),
+    "milestone estimate": ("Your estimate today is {est}: about {weeks} weeks at {gain}% a week, what recreational runners gained in studies. "
+                           "A shorter stage 1 makes the test a check of where you are.",
+                           "Perkiraanmu sekarang {est}: sekitar {weeks} minggu dengan kenaikan {gain}% per minggu, seperti pelari rekreasi di penelitian. "
+                           "Tahap 1 yang lebih pendek menjadikan tesnya cek posisi."),
+    "milestone now": ("<b>Stage 1 of 2 · {label}</b> ({pace}/km), test on {date}. Then stage 2: {final}.",
+                      "<b>Tahap 1 dari 2 · {label}</b> ({pace}/km), tes {date}. Lalu tahap 2: {final}."),
+    "milestone rule": ("It passes with a run marked as a race in Garmin, at least {dist} long and under the "
+                       "target. A race on another day counts too: stage 2 then starts the Monday after.",
+                       "Lulus dengan lari yang ditandai Race di Garmin, minimal {dist} dan di bawah target. "
+                       "Di hari lain juga dihitung: tahap 2 mulai Senin setelahnya."),
+    "milestone tries": ("Missed tests so far: {n}.", "Tes yang belum lulus sejauh ini: {n}."),
+    "milestone missed": ("<b>{label}: not passed</b> (test {date}). Repeat stage 1 for {weeks} more weeks and "
+                         "test again, or give up and stop this program.",
+                         "<b>{label}: belum lulus</b> (tes {date}). Ulangi tahap 1 selama {weeks} minggu lagi lalu "
+                         "tes ulang, atau nyerah dan hentikan program ini."),
+    "milestone repeat": ("Repeat ({weeks} weeks)", "Ulangi ({weeks} minggu)"),
+    "milestone give up": ("Give up", "Nyerah"),
+    "milestone passed": ("<b>Stage 2 of 2 · {final}.</b> Milestone passed: {label} in {time} ({km} km, {date}).",
+                         "<b>Tahap 2 dari 2 · {final}.</b> Milestone lulus: {label} dalam {time} ({km} km, {date})."),
+    "check ok": ("ok", "oke"), "check short": ("short", "kurang"), "own rule": ("own rule", "aturan sendiri"),
+    "check in title": ("<b>Weekly check-in {start} - {end}</b> (from your training)",
+                       "<b>Evaluasi mingguan {start} - {end}</b> (dari latihanmu)"),
+    "check in runs": ("runs: {done} of {planned} done (at least 80%)",
+                      "lari: {done} dari {planned} dijalani (minimal 80%)"),
+    "check in long": ("long runs: {done} of {planned} done", "long run: {done} dari {planned} selesai"),
+    "check in hard": ("hard sessions: {done} of {planned} done", "sesi keras: {done} dari {planned} dijalani"),
+    "check in easy": ("time at easy heart rate: {pct}% (at least {min}%)",
+                      "waktu di detak jantung santai: {pct}% (minimal {min}%)"),
+    "check in fitness": ("efficiency {change}% against the 4 weeks before; easy pace at HR {hr}: {before} → {now} /km",
+                         "efisiensi {change}% dibanding 4 minggu sebelumnya; pace santai di HR {hr}: {before} → {now} /km"),
+    "check in go": ("On track: carry on to the test.", "Sesuai jalur: lanjut ke tes."),
+    "check in behind": ("Not on track yet. Move the test {weeks} week(s) later for more preparation, or keep the date.",
+                        "Belum sesuai jalur. Undur tes {weeks} minggu untuk persiapan tambahan, atau tetap sesuai jadwal."),
+    "check in postpone": ("Move the test {weeks} week(s)", "Undur tes {weeks} minggu"),
+    "check in keep": ("Keep the date", "Tetap sesuai jadwal"),
+    "check in chose postpone": ("You moved the test {weeks} week(s) later.", "Kamu mengundur tes {weeks} minggu."),
+    "check in chose keep": ("You kept the test date.", "Kamu memilih tetap sesuai jadwal."),
+    "milestone stopped": ("Stopped on {date} after the milestone. Make a new program with a target that fits "
+                          "your latest test.",
+                          "Dihentikan pada {date} setelah milestone. Buat program baru dengan target yang sesuai "
+                          "hasil tes terakhirmu."),
     "week of": ("week {n} of {total}", "minggu {n} dari {total}"),
     "race on": ("race {date}", "race {date}"),
     "n weeks": ("{n} weeks", "{n} minggu"),
@@ -295,6 +368,78 @@ TEXT = {
     "calendar hint": ("Hover over a day (or tap it on a phone) for its menu.",
                       "Arahkan kursor ke satu hari (atau ketuk di HP) untuk melihat menunya."),
     "full menu": ("Full menu", "Menu lengkap"),
+    "analysis link": ("Run analysis", "Analisis lari"),
+    "run analysis": ("Run analysis", "Analisis lari"),
+    "planned menu": ("The planned menu", "Menu yang direncanakan"),
+    "stat moving": ("moving time", "waktu bergerak"),
+    "stat pace": ("average pace", "pace rata-rata"),
+    "stat avg hr": ("average heart rate", "detak jantung rata-rata"),
+    "overall good": ("Well done: the run did what the plan asked.", "Mantap: lari ini sesuai yang diminta plan."),
+    "overall too hard": ("Done, but harder than planned.", "Selesai, tapi lebih keras dari rencana."),
+    "overall short": ("Done, but shorter than planned.", "Selesai, tapi lebih pendek dari rencana."),
+    "overall extra": ("An extra run on a rest day.", "Lari tambahan di hari istirahat."),
+    "overall ok": ("Done.", "Selesai."),
+    "dist as planned": ("Distance as planned: {km} of {plan} km.", "Jarak sesuai rencana: {km} dari {plan} km."),
+    "dist short": ("Shorter than planned: {km} of {plan} km.", "Lebih pendek dari rencana: {km} dari {plan} km."),
+    "dist long": ("Longer than planned: {km} of {plan} km - fine now and then, not every week.",
+                  "Lebih jauh dari rencana: {km} dari {plan} km - sesekali tidak apa, jangan tiap minggu."),
+    "dist unplanned": ("The plan had a rest day here. An extra easy run is fine; rest days are where the training sinks in.",
+                       "Plan-nya istirahat di hari ini. Lari santai tambahan tidak apa; di hari istirahat latihan diserap tubuh."),
+    "int easy": ("Truly easy: {pct}% of the time at heart rate {hr} or below. That is how easy runs should be.",
+                 "Benar-benar santai: {pct}% waktu di detak jantung {hr} ke bawah. Begitulah easy run seharusnya."),
+    "int mostly easy": ("Mostly easy ({pct}% at {hr} or below), with stretches above. Slow down a little earlier, "
+                        "especially later in the run as heart rate drifts up.",
+                        "Sebagian besar santai ({pct}% di {hr} ke bawah), dengan beberapa bagian di atasnya. Pelankan "
+                        "sedikit lebih awal, terutama di bagian akhir saat detak jantung naik pelan-pelan."),
+    "int too hard": ("Too hard for an easy run: only {pct}% of the time at {hr} or below (average {avg}). An easy run this "
+                     "hard adds fatigue without the easy-run benefit - run slower, or walk a minute whenever heart rate "
+                     "passes {hr}.",
+                     "Terlalu keras untuk easy run: hanya {pct}% waktu di {hr} ke bawah (rata-rata {avg}). Easy run "
+                     "sekeras ini menambah lelah tanpa manfaat lari santai - lari lebih pelan, atau jalan semenit "
+                     "setiap detak jantung lewat {hr}."),
+    "int hard session": ("A hard session, so an average heart rate of {avg} is expected. The repeats themselves are "
+                         "judged by pace and breathing, which a run's average cannot show.",
+                         "Sesi keras, jadi detak jantung rata-rata {avg} itu wajar. Repetisinya sendiri dinilai dari "
+                         "pace dan napas, yang tidak terlihat dari rata-rata satu lari."),
+    "pace faster": ("Average pace {pace}/km was faster than the planned {fast}-{slow}.",
+                    "Pace rata-rata {pace}/km lebih cepat dari rencana {fast}-{slow}."),
+    "pace within": ("Average pace {pace}/km was within the planned {fast}-{slow}.",
+                    "Pace rata-rata {pace}/km masuk rentang rencana {fast}-{slow}."),
+    "pace slower": ("Average pace {pace}/km was slower than the planned {fast}-{slow} - fine, heart rate decides.",
+                    "Pace rata-rata {pace}/km lebih lambat dari rencana {fast}-{slow} - tidak apa, detak jantung yang menentukan."),
+    "heat review": ("Heat and humidity ({temp}°C, dew point {dew}°C) cost about {pct}%: in cool weather this was "
+                    "about {adj}/km.",
+                    "Panas dan lembap ({temp}°C, titik embun {dew}°C) memperlambat sekitar {pct}%: di cuaca sejuk "
+                    "ini setara sekitar {adj}/km."),
+    "eff better": ("Efficiency {chg}% above your last 4 weeks: more speed for the same heart rate.",
+                   "Efisiensi {chg}% di atas 4 minggu terakhirmu: lebih cepat di detak jantung yang sama."),
+    "eff worse": ("Efficiency {chg}% below your last 4 weeks - heat, tiredness or a bad day can do that; one run says little.",
+                  "Efisiensi {chg}% di bawah 4 minggu terakhirmu - panas, lelah, atau hari yang kurang fit bisa "
+                  "menyebabkannya; satu lari belum berarti banyak."),
+    "eff usual": ("Efficiency like your last 4 weeks.", "Efisiensi setara 4 minggu terakhirmu."),
+    "row max hr": ("Max heart rate", "Detak jantung maksimal"),
+    "row easy time": ("Time at easy heart rate", "Waktu di detak jantung santai"),
+    "row heat adj": ("Pace in cool weather (est.)", "Pace di cuaca sejuk (perkiraan)"),
+    "row gap": ("Grade-adjusted pace", "Pace dikoreksi tanjakan"),
+    "row cadence": ("Cadence", "Cadence"),
+    "row ascent": ("Ascent", "Total tanjakan"),
+    "row te": ("Aerobic training effect (Garmin)", "Aerobic training effect (Garmin)"),
+    "row weather": ("Weather", "Cuaca"),
+    "dew": ("dew", "embun"),
+    "slower by": ("{pct}% slower from heat", "{pct}% lebih lambat karena panas"),
+    "row efficiency": ("Efficiency (m/min per bpm)", "Efisiensi (m/mnt per bpm)"),
+    "usual short": ("usual", "biasanya"),
+    "row calories": ("Calories", "Kalori"),
+    "splits": ("Splits per km", "Split per km"),
+    "split km": ("Km", "Km"),
+    "split dist": ("Distance", "Jarak"),
+    "split time": ("Time", "Waktu"),
+    "split pace": ("Pace", "Pace"),
+    "split hr": ("Avg HR", "HR rata-rata"),
+    "split note": ("Moving time; red bars are above the easy limit ({hr}).",
+                   "Waktu bergerak; batang merah berarti di atas batas santai ({hr})."),
+    "no splits": ("No splits: this run has no activity file (only the last 12 weeks are downloaded).",
+                  "Tidak ada split: lari ini tidak punya file aktivitas (hanya 12 minggu terakhir yang diunduh)."),
     "day menu": ("Day menu", "Menu hari itu"),
     "pick a day": ("Tap a day in the calendar to see its menu.", "Ketuk satu hari di kalender untuk melihat menunya."),
     "you ran": ("You ran {km} km at {pace}/km, average heart rate {hr}.",
@@ -352,10 +497,10 @@ TEXT = {
     "check long run step": ("The long run ({long} km) is more than 1.5 km longer than your recent longest "
                             "({longest} km).",
                             "Long run ({long} km) lebih dari 1,5 km di atas lari terjauhmu belakangan ini ({longest} km)."),
-    "check hard after race": ("A hard session is planned within two weeks of your race - keep it easy instead.",
-                              "Ada sesi keras dalam dua minggu setelah race - sebaiknya diganti lari santai."),
-    "check post-race rest": ("A run is planned in the first 3 days after your race - rest instead.",
-                             "Ada lari di 3 hari pertama setelah race - sebaiknya istirahat."),
+    "check hard after race": ("A hard session is planned within {days} days of your race - keep it easy instead.",
+                              "Ada sesi keras dalam {days} hari setelah race - sebaiknya diganti lari santai."),
+    "check post-race rest": ("A run is planned in the first {days} day(s) after your race - rest instead.",
+                             "Ada lari di {days} hari pertama setelah race - sebaiknya istirahat."),
     "check load spike": ("This week is {ratio}× your usual load of the last 3 weeks ({usual} km a week).",
                          "Minggu ini {ratio}× beban biasamu dalam 3 minggu terakhir ({usual} km per minggu)."),
     "level pass": ("ok", "aman"), "level info": ("note", "catatan"),

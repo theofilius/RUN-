@@ -27,9 +27,12 @@ The app shows the formula and the data behind every number it gives.
 | **Easy-run honesty check** | Weekly easy vs hard time against an 80/20 target, plus runs you *called* easy whose heart rate says otherwise |
 | **Heat-adjusted pace** | Real air temperature and dew point for each run (from Open-Meteo), converted to an expected slowdown |
 | **Training plan** | A rolling month plan (Monday–Sunday weeks) re-planned every week from your latest data, with a planned-vs-actual evaluation of each finished week. A finished week is frozen as you last saw it, so later changes to the goal or the rules never rewrite the plan it is judged against. Each day is a menu: rest, or warm-up / main / cool-down with distance, heart-rate range, pace range, time and how to run it, plus a reason and visible safety checks |
-| **Training programs** | Save what you train for (distance, "sub" target, race date, start), as many as you like, one active. Each program has its own page: the goal in plain words, a month-by-month calendar from start to race (tap a day for its menu and what you actually ran), every week and the build-up chart. Programs keep adapting to your runs; finished weeks stay frozen per program |
+| **Training programs** | Save what you train for (distance, "sub" target, race date, start), as many as you like, one active. Each program has its own page: the goal in plain words, a month-by-month calendar from start to race (hover or tap a day for its menu; open a day you ran for a full run analysis: all its numbers, an overall verdict and what they mean against the menu and your last 4 weeks), every week and the build-up chart. Programs keep adapting to your runs; finished weeks stay frozen per program |
+| **Milestone programs** | A 10K, half or marathon target can be tested on a shorter race first (10K → 5K, half → 10K, marathon → half) at the time your target is worth there. Stage 1 trains for that test with two hard sessions a week (tempo and intervals) and builds the weekly distance for the final goal; a run marked as a race in Garmin that is long and fast enough passes it, and stage 2 starts the Monday after. Missed the test? Choose to repeat it (4 more weeks) or stop the program |
+| **Weekly check-ins** | During stage 1, each finished week with hard sessions is checked: runs done, long run, hard sessions, time at easy heart rate and efficiency, each with the paper behind its limit (or marked as an own rule). When it is behind, move the test a week later or keep the date |
+| **Run analysis and splits** | Open a day you ran: distance, intensity, pace and efficiency against the menu and your last 4 weeks, plus per-km splits (distance, moving time, pace, heart rate) from the activity `.fit` file |
 | **Goal planner** | Pick a distance and a "sub" target from a dropdown built from your current estimate. Each option shows the weeks needed at your own rate. The plan adapts: goal-pace finishes on long runs when the pace is within reach, a long-run ceiling for the distance, and a taper once you set a race date |
-| **Taper and step-back weeks** | A 2-week taper before your goal race, and a lighter week every 4th week |
+| **Taper and step-back weeks** | A 2-week taper before your goal race (one race week before a milestone test), a short sharpener at goal pace in race week, and a lighter week every 4th week |
 | **`.fit` workout export** | Turns planned runs into Garmin workout files you copy to your watch |
 | **Weather & air quality** | Sidebar forecast for your city: now, the next hours and your usual run time (Open-Meteo, info only) |
 | **Garmin Connect sync (optional)** | With a free Garmin Personal API key, runs come straight from Garmin Connect, including your full history, with no CSV export. The dashboard syncs by itself every hour or on **Sync now** |
@@ -87,7 +90,7 @@ RACES = {                       # extra races (start time as on the watch) - see
 }
 PLAN_START = "2026-10-28"       # the day your plan starts (weeks run Monday-Sunday)
 RUNS_PER_WEEK = 6               # your target; START_RUNS_PER_WEEK is week 1
-WEEKLY_GROWTH = 0.15            # distance growth once the target number of runs is reached
+WEEKLY_GROWTH = 0.10            # distance growth once the target number of runs is reached
 STEP_BACK_EVERY = 4             # every 4th week is lighter (0 = off)
 # Your goal (distance, "sub" target, race date) is chosen in the dashboard and
 # saved to data/goal.json; GOAL_RACE here is only the default.
@@ -172,10 +175,13 @@ activities, so the USB route is the way in.
 |---|---|
 | Efficiency | (distance m ÷ moving minutes) ÷ average HR. Higher means fitter |
 | Pace @ reference HR | 1000 ÷ (efficiency × reference HR) minutes per km |
-| Easy run | average HR ≤ 80% of max HR (configurable) |
+| Easy run | average HR ≤ 78% of max HR (`EASY_HR_FRACTION`; the first threshold of recreational runners, Nuuttila 2025) |
 | Easy % | easy moving time ÷ total moving time, per Monday–Sunday week. Per second where an activity `.fit` exists, otherwise by each run's average HR |
 | Goal estimate | last race × (goal km ÷ race km)^1.06 (Riegel) × (efficiency before that race ÷ efficiency now) |
 | Weeks to goal | ln(estimate ÷ target) ÷ ln(1 + your weekly fitness gain) |
+| Realistic gain | 0.5% a week: recreational runners improved 10K by 5.0% in 10 weeks (Muñoz 2014) and 6.2% in 12 weeks (Nuuttila 2022) |
+| Milestone target | target × (milestone km ÷ goal km)^1.06, e.g. 10K sub 1:10 → 5K sub 33:34 |
+| Splits | moving time (pauses over 10 s left out) at each whole km, interpolated between `.fit` samples |
 | Air quality | US AQI. Open-Meteo model (CAMS), or IQAir measured now plus a 48 h correction if you add an IQAir key |
 | Heat slowdown | air temp °F + dew point °F, looked up in a runner's rule-of-thumb table (0% at 100 → 10% at 180) |
 | Heat-adjusted pace | pace ÷ (1 + slowdown %) |
@@ -191,39 +197,50 @@ city coordinates and dates are sent, and the results are cached in
 
 **Week type** (the first rule that matches):
 
-1. **A race in the last 14 days** → *recovery*: every run easy.
+1. **A race too recently** (a half marathon or longer under 4 days before the week, a shorter race under 2) → *recovery*: every run easy.
 2. **Easy time under 50%** → *fix easy*: every run easy.
-3. **Otherwise** → *build*: one hard session a week, tempo and intervals in turn.
+3. **Otherwise** → *build*: one hard session a week, tempo and intervals in turn; two (both, at least 2 days apart) in stage 1 of a milestone program.
 
 The month plan can also set a **phase**:
 - every 4th week is a *step back*
-- the 2 weeks before `GOAL_RACE` are *taper* and *race week*
+- the 2 weeks before `GOAL_RACE` are *taper* and *race week* (a milestone test has only the race week)
 
 **How the week is built (frequency first):**
 
 - **Runs:** week 1 has `START_RUNS_PER_WEEK`. After that, one run of 5 km or more is added each week, up to `RUNS_PER_WEEK`. No run is added if more than one run was missed last week, after an injury, or if it would break the 30% limit.
-- **Long run:** starts from your recent longest run and never goes down. It grows +1 km a week when last week's reached 90% of plan and it fits the 30% limit. Only a taper shortens it. Maximum 21 km.
-- **Growth:** once you reach the target number of runs, weekly distance grows by `WEEKLY_GROWTH`, shared by the easy runs.
+- **Long run:** starts from your recent longest run and never goes down. It grows +1 km a week when last week's reached 90% of plan and it fits the 30% limit. Only a taper shortens it. Maximum depends on the goal: 12 km (5K), 16 km (10K), 21 km (half), 32 km (marathon).
+- **Growth:** once you reach the target number of runs, weekly distance grows by `WEEKLY_GROWTH` (10%, as in Nuuttila 2022), shared by the easy runs, up to the target's peak. A 10K target of 56–80 min builds to at least 30 km a week (Suwankan 2024); a milestone builds to the final goal's peak.
 - **30% limit:** every week stays under +30% of the last 7 days. After a step-back week, it's measured from the week before the step-back.
 - **Step-back week:** no extra run, the long run holds, and distance drops about 25% (easy runs get shorter first, then one is dropped).
 - **Taper:** 70% of a normal week, then 50% in race week. Runs stay frequent and some faster running is kept. No runs on race day or the day before.
-- **After any race:** 3 rest days, then recovery weeks. Strides start from day 7.
-- **Intervals:** 3–6 × 800 m, as many as fit the run's distance, with 400 m jogs.
-- **Paces:** from your own efficiency, projected forward at your recent fitness gain (at most 1% a week).
+- **After any race:** a half marathon or longer gets 3 rest days and hard sessions from day 4 (Zhou 2026, Wang 2025); a shorter race 1 rest day and hard sessions from day 2. Strides start from day 7.
+- **Race-week sharpener:** with a target, 4 × 400 m at goal pace 2–4 days before the race (Bosquet 2007: keep intensity in a taper).
+- **Intervals:** 3–6 × 800 m, as many as fit the run's distance, with 400 m jogs, at 91–95% of max HR (above the second threshold, Muñoz 2014).
+- **Paces:** from your own efficiency, projected forward at your recent fitness gain (at most 0.5% a week).
 
 Every plan shows these checks, each with a level (pass / note / caution / high)
 and its source:
 
 | Check | Evidence |
 |---|---|
-| No runs in the 3 days after a race | Zhou et al. 2026, doi:10.1186/s13102-026-01640-w; Wang et al. 2025, doi:10.1186/s40798-025-00824-x |
+| No runs in the 3 days after a half marathon (1 day after a shorter race) | Zhou et al. 2026, doi:10.1186/s13102-026-01640-w; Wang et al. 2025, doi:10.1186/s40798-025-00824-x |
 | Planned week ≤ last 7 days + 30% | Nielsen et al. 2014, doi:10.2519/jospt.2014.5164 |
 | Weekly distance ≤ 4-week average + 10% | Cautious default, shown as caution only. A 10%-rule trial did not reduce injuries (Buist et al. 2008, doi:10.1177/0363546507307505) |
 | Distance not rising 3 weeks in a row | Nielsen et al. 2014 (discussion) |
 | Long run ≤ recent longest + 1.5 km | Planner default; Fokkema et al. 2020 links longer long runs to faster times (doi:10.1111/sms.13725) |
-| No hard sessions within 14 days of a race | Planner default |
+| No hard sessions before day 4 after a half marathon (day 2 after a shorter race) | Zhou et al. 2026; Wang et al. 2025. The shorter-race days are our reading |
 | Acute:chronic ratio: caution ≥ 1.3, high ≥ 1.5 | Cloosterman et al. 2024, doi:10.4085/1062-6050-0430.23. Weak evidence for runners |
 | Taper: about 2 weeks, volume −41–60% | Bosquet et al. 2007, doi:10.1249/mss.0b013e31806010e0 |
+
+**Weekly check-in** (stage 1 of a milestone program):
+
+| Check | Limit | Source |
+|---|---|---|
+| Runs done | at least 80% of planned | Own rule |
+| Long run | done (90% of its distance) | Own rule |
+| Hard sessions | each done at 90%+ of its distance | Nielsen et al. 2020 (±10%), doi:10.1136/bjsports-2019-100858; that all must be done is our rule |
+| Time at easy HR | at least 75% | Muñoz et al. 2014, doi:10.1123/IJSPP.2012-0350 |
+| Efficiency | at most 3% below the 4 weeks before | Nuuttila et al. 2022, doi:10.1249/MSS.0000000000002968 |
 
 All sources are listed in [`src/evidence.py`](src/evidence.py).
 
@@ -239,21 +256,23 @@ src/
   evidence.py             the papers behind each rule, with DOIs
   units.py                seconds ↔ "m:ss" / "h:mm:ss"
   env.py                  API keys from the environment or .env
-  programs.py             saved training programs (data/programs.json), one active
+  programs.py             saved training programs (data/programs.json), one active, milestone stages
   loaders/
     csv_garmin.py         Garmin CSV → clean table (numbers, seconds, km)
     garmin_api.py         Garmin Personal API sync → the same table (needs GARMIN_API_KEY in .env)
-    fit_activities.py     optional per-second HR from activity .fit files
+    fit_activities.py     optional per-second HR and per-km splits from activity .fit files
     weather_openmeteo.py  hourly air temp + dew point for past runs, cached
     forecast_openmeteo.py weather + air-quality forecast, cached
     iqair.py              optional measured AQI (needs IQAIR_API_KEY in .env)
   analysis/
     races.py              which runs are races (Garmin Event Type or RACES)
+    run_review.py         one run against its planned menu: distance, intensity, pace, efficiency
     race_postmortem.py    compare the weeks before two races
     fitness_trend.py      efficiency and pace @ HR over time
     easy_check.py         weekly 80/20 check + mislabelled easy runs
     heat_adjust.py        heat slowdown and heat-adjusted pace
-    goal_planner.py       estimate today vs target time
+    goal_planner.py       estimate today vs target time, peak weekly distance
+    checkpoint.py         weekly check-ins during a milestone stage
     run_conditions.py     forecast per run window, AQI labels, model + measured air
   planner/
     plan_generator.py     one week of workouts with reasons
@@ -295,4 +314,5 @@ CSV and Garmin API loaders are interchangeable, and a Strava loader could be add
 - [x] Backward goal planner, taper and step-back weeks
 - [x] Optional per-second HR from activity `.fit` files
 - [x] Phase 4: automatic import via the Garmin Personal API (pull-only)
+- [x] Milestone programs, weekly check-ins, run analysis and splits
 - [ ] Strava bulk-export loader

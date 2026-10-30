@@ -22,8 +22,26 @@ MAX_LONG_RUN_STEP_KM = 1.5  # longest run grows by at most this much per week
 ACWR_CAUTION = 1.3
 ACWR_HIGH = 1.5
 MIN_SPIKE_KM = 10           # ignore tiny weeks: 2 km after a break is not a "spike"
-RECOVERY_DAYS = 14          # no hard sessions this many days after a half marathon
-POST_RACE_REST_DAYS = 3     # Zhou 2026: muscle damage clears in ~72 h with rest, slower if running
+# After a race. Half marathon: thigh muscle damage was back to baseline at 72 h with rest,
+# and moderate or hard running from 24 h delayed that (Zhou 2026); strength and gait were
+# back within 1-2 days (Wang 2025). So no running for 3 days and no hard sessions before
+# day 4. No study covers shorter races: a 5K or 10K test gets the shorter of the two
+# findings (Wang 2025) - our reading, as they do less damage.
+RECOVERY_DAYS = 4           # long race: hard sessions from this many days after it
+POST_RACE_REST_DAYS = 3     # long race: days with no running (Zhou 2026)
+LONG_RACE_KM = 15.0         # shorter races (a 5K or 10K test) get the SHORT_RACE_ values
+SHORT_RACE_RECOVERY_DAYS = 2
+SHORT_RACE_REST_DAYS = 1
+
+
+def recovery_days(race_km):
+    """Days after a race before a hard session (days since race must reach this)."""
+    return RECOVERY_DAYS if race_km is None or race_km >= LONG_RACE_KM else SHORT_RACE_RECOVERY_DAYS
+
+
+def rest_days(race_km):
+    """Days with no running after a race."""
+    return POST_RACE_REST_DAYS if race_km is None or race_km >= LONG_RACE_KM else SHORT_RACE_REST_DAYS
 
 
 def result(rule, level, detail, formula, sources, key=None, values=None):
@@ -54,7 +72,7 @@ def check_weekly_increase(planned_km, baseline_km):
         f"{planned_km:.1f} km planned, limit {limit:.1f} km. Stricter than the evidence requires: "
         "a 10%-rule trial did not reduce injuries, and 10-30% was no riskier than <10%.",
         "limit = average km/week over the last 4 weeks x 1.10",
-        ["own", "buist2008", "nielsen2014"],
+        ["own", "buist2008", "nielsen2014", "boullosa2020"],
         "weekly 10%", {"planned_km": planned_km, "limit_km": limit},
     )
 
@@ -111,33 +129,35 @@ def check_long_run(long_km, longest_recent_km):
     )
 
 
-def check_no_hard_after_race(workouts, days_since_race):
+def check_no_hard_after_race(workouts, days_since_race, race_km=None):
     hard = [w for w in workouts if w.is_hard]
-    too_soon = days_since_race is not None and days_since_race < RECOVERY_DAYS
+    days = recovery_days(race_km)
+    too_soon = days_since_race is not None and days_since_race < days
     return result(
-        f"No hard sessions within {RECOVERY_DAYS} days of a race",
+        f"No hard sessions within {days} days of a race",
         "high" if too_soon and hard else "pass",
         f"last race {days_since_race} days before this week, {len(hard)} hard session(s) planned",
-        f"hard sessions allowed only when days since race >= {RECOVERY_DAYS}",
-        ["own"], "hard after race", {"days_since_race": days_since_race, "hard": len(hard)},
+        f"hard sessions allowed only when days since race >= {days}",
+        ["zhou2026", "wang2025"], "hard after race", {"days_since_race": days_since_race, "hard": len(hard), "days": days},
     )
 
 
-def check_post_race_rest(workouts, last_race):
-    """No runs in the first POST_RACE_REST_DAYS days after a race."""
-    rule = f"No runs in the first {POST_RACE_REST_DAYS} days after a race"
-    formula = f"rest on race day + 1 ... race day + {POST_RACE_REST_DAYS}"
+def check_post_race_rest(workouts, last_race, race_km=None):
+    """No runs in the first rest_days(race_km) days after a race."""
+    days = rest_days(race_km)
+    rule = f"No runs in the first {days} day{'s' if days != 1 else ''} after a race"
+    formula = f"rest on race day + 1 ... race day + {days}"
     if last_race is None:
         return result(rule, "pass", "no race before this plan", formula, ["zhou2026", "wang2025"],
-                      "post-race rest")
+                      "post-race rest", {"days": days})
     race_day = last_race.date()
-    too_soon = [w for w in workouts if 0 < (w.day - race_day).days <= POST_RACE_REST_DAYS]
+    too_soon = [w for w in workouts if 0 < (w.day - race_day).days <= days]
     return result(
         rule,
         "high" if too_soon else "pass",
-        f"race on {race_day:%a %d %b}; {len(too_soon)} run(s) planned in the {POST_RACE_REST_DAYS} days after",
+        f"race on {race_day:%a %d %b}; {len(too_soon)} run(s) planned in the {days} days after",
         formula,
-        ["zhou2026", "wang2025"], "post-race rest", {"runs_too_soon": len(too_soon)},
+        ["zhou2026", "wang2025"], "post-race rest", {"runs_too_soon": len(too_soon), "days": days},
     )
 
 
