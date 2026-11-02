@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 from conftest import make_runs
 
-from src.analysis import races
+from src.athlete import ATHLETE
 from src.planner import plan_generator, safety_rules
 from src.planner.month_plan import build_month_plan
 from src.planner.plan_generator import LONG_RUN_DAY, MIN_RUN_KM, build_plan
@@ -83,7 +83,7 @@ def test_no_runs_in_the_three_days_after_a_race(runs, no_races, monkeypatch, how
     race = pd.Timestamp("2026-10-24 05:00")
     with_race = pd.concat([runs, race_run(race)], ignore_index=True).sort_values("start_time")
     if how == "config":
-        monkeypatch.setattr(races, "RACES", {"race": {"start": str(race), "distance_km": 21.1}})
+        monkeypatch.setattr(ATHLETE, "races", {"race": {"start": str(race), "distance_km": 21.1}})
     else:
         with_race["garmin_race"] = with_race["start_time"] == race
     plan = build_plan(with_race, "2026-10-26", runs_from=5)
@@ -166,13 +166,13 @@ def test_a_hard_goal_pace_finish_is_the_weeks_only_hard_session(no_races):
 
 
 def test_no_target_still_stops_growing(no_races, monkeypatch):
-    from src.analysis import goal_planner, races as races_module
+    from src.analysis import goal_planner
     race = pd.Timestamp("2026-08-30 05:00")
     runs = pd.concat([make_runs("2026-07-01", "2026-10-25"),
                       pd.DataFrame([{"start_time": race, "activity_type": "Running", "title": "HM",
                                      "distance_km": 21.1, "duration_s": 11600, "moving_time_s": 11600,
                                      "avg_hr": 170, "max_hr": 185}])], ignore_index=True).sort_values("start_time")
-    monkeypatch.setattr(races_module, "RACES", {"HM": {"start": str(race), "distance_km": 21.1}})
+    monkeypatch.setattr(ATHLETE, "races", {"HM": {"start": str(race), "distance_km": 21.1}})
     weeks = month(runs, weeks=20)
     peak = goal_planner.peak_km(21.1, 11600)
     assert all(week_km(w) <= max(peak, peak_floor(w)) + 0.5 for w in weeks)

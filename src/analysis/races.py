@@ -12,12 +12,12 @@ plan, and the latest one anchors the goal estimate.
 
 import pandas as pd
 
-from src.config import RACES
+from src.athlete import ATHLETE
 
 
 def race_mask(runs):
     """True for every run that is a race."""
-    listed = runs["start_time"].isin(pd.to_datetime([race["start"] for race in RACES.values()]))
+    listed = runs["start_time"].isin(pd.to_datetime([race["start"] for race in ATHLETE.races.values()]))
     if "garmin_race" not in runs:
         return listed
     return listed | runs["garmin_race"].astype("boolean").fillna(False).astype(bool)
@@ -28,7 +28,7 @@ def race_list(runs):
 
     The name is the one in RACES when the race is listed there, else its Garmin title.
     """
-    names = {pd.Timestamp(race["start"]): name for name, race in RACES.items()}
+    names = {pd.Timestamp(race["start"]): name for name, race in ATHLETE.races.items()}
     races = {}
     for run in runs[race_mask(runs)].sort_values("start_time").itertuples():
         name = names.get(run.start_time, run.title or "Race")

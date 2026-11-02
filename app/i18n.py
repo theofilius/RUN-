@@ -283,6 +283,76 @@ TEXT = {
     "peak line": ("Target build-up", "Puncak target"),
     "km per week": ("km per week", "km per minggu"),
 
+    # ---- welcome and runners ----
+    "start": ("Start", "Mulai"),
+    "who runs": ("Who is running?", "Siapa yang lari?"),
+    "choose": ("Choose", "Pilih"),
+    "switch user": ("switch runner", "ganti user"),
+    "user from data": ("Garmin data and CSV exports", "Data Garmin dan ekspor CSV"),
+    "user from stats": ("from stats entered on {date}", "dari stats yang diisi {date}"),
+    "new user": ("New runner", "Buat user baru"),
+    "stats intro": ("A few numbers about your running replace a watch history for now: the plan, its heart-rate "
+                    "zones and your estimates start from them. Hover over the ? to see why each one is asked.",
+                    "Beberapa angka tentang larimu menggantikan riwayat jam untuk sementara: plan, zona detak "
+                    "jantung dan perkiraanmu dihitung dari sini. Arahkan kursor ke tanda ? untuk tahu kenapa ditanyakan."),
+    "user name": ("Name", "Nama"),
+    "sex": ("Sex", "Jenis kelamin"),
+    "sex male": ("male", "laki-laki"), "sex female": ("female", "perempuan"),
+    "why sex": ("Sets your easy heart-rate limit: the top of easy effort was ~79% of max HR in men and ~84% in "
+                "women (Nuuttila 2025), lower in the least trained (Benítez-Muñoz 2025).",
+                "Menentukan batas detak jantung santai: puncak usaha santai sekitar 79% HR maks pada laki-laki dan "
+                "84% pada perempuan (Nuuttila 2025), lebih rendah pada yang kurang terlatih (Benítez-Muñoz 2025)."),
+    "age": ("Age", "Umur"),
+    "why age": ("Estimates your max HR when you do not know it: 208 - 0.7 × age (Tanaka 2001). People differ "
+                "from it by about 10 bpm.",
+                "Memperkirakan HR maks kalau kamu tidak tahu: 208 - 0,7 × umur (Tanaka 2001). Tiap orang bisa "
+                "beda sekitar 10 bpm dari rumus ini."),
+    "know max hr": ("I know my max heart rate", "Saya tahu detak jantung maksimal saya"),
+    "why max hr": ("Every heart-rate zone is a share of it. The highest value from a hard race finish or a test "
+                   "beats the age formula.",
+                   "Semua zona detak jantung dihitung dari sini. Nilai tertinggi dari akhir race keras atau tes "
+                   "lebih akurat daripada rumus umur."),
+    "max hr": ("Max heart rate (bpm)", "Detak jantung maksimal (bpm)"),
+    "last 4 weeks": ("Your last 4 weeks", "4 minggu terakhirmu"),
+    "runs per week": ("Runs a week", "Lari per minggu"),
+    "why runs per week": ("The plan starts at this many runs and adds one a week, up to 6.",
+                          "Plan mulai dari jumlah lari ini dan menambah satu per minggu, sampai 6."),
+    "weekly km": ("Km a week", "Km per minggu"),
+    "why weekly km": ("Your recent load: the plan grows from it and stays under +30% in two weeks (Nielsen 2014).",
+                      "Beban latihanmu belakangan ini: plan naik dari angka ini dan tidak lebih dari +30% dalam "
+                      "dua minggu (Nielsen 2014)."),
+    "longest km": ("Longest run (km)", "Lari terjauh (km)"),
+    "why longest km": ("The long run starts here and grows 1 km a week.",
+                       "Long run mulai dari sini dan naik 1 km per minggu."),
+    "easy pace": ("Usual easy pace (m:ss per km)", "Pace santai biasa (m:dd per km)"),
+    "easy hr": ("Its average heart rate", "Detak jantung rata-ratanya"),
+    "why easy pace": ("Pace and heart rate of an ordinary easy run give your efficiency (speed per heartbeat), "
+                      "which turns every heart-rate zone into a pace.",
+                      "Pace dan detak jantung lari santai biasa memberi efisiensimu (kecepatan per detak), yang "
+                      "mengubah setiap zona detak jantung menjadi pace."),
+    "has race": ("I ran a race or time trial recently", "Saya baru ikut race atau time trial"),
+    "why race": ("Your estimate for any target distance comes from it (Riegel). Without one, the plan still works, "
+                 "but targets wait until you race.",
+                 "Perkiraan untuk jarak target apa pun dihitung dari sini (Riegel). Tanpa ini plan tetap jalan, "
+                 "tapi target menunggu sampai kamu race."),
+    "race time": ("Time (h:mm:ss)", "Waktu (j:mm:dd)"),
+    "injured": ("I had a running injury in the last 12 months", "Saya cedera lari dalam 12 bulan terakhir"),
+    "why injured": ("The strongest injury predictor in runners (Fokkema 2020): the plan then adds no extra runs.",
+                    "Prediktor cedera terkuat pada pelari (Fokkema 2020): plan lalu tidak menambah lari."),
+    "create user": ("Create and start", "Buat dan mulai"),
+    "bad name": ("Enter a name.", "Isi nama."),
+    "bad pace": ("Write the easy pace as m:ss, e.g. 7:30.", "Tulis pace santai sebagai m:dd, misalnya 7:30."),
+    "bad race time": ("Write the race time as h:mm:ss or mm:ss, e.g. 0:32:10.",
+                      "Tulis waktu race sebagai j:mm:dd atau mm:dd, misalnya 0:32:10."),
+    "bad longest": ("The longest run cannot be more than the km of a whole week.",
+                    "Lari terjauh tidak bisa lebih dari km satu minggu."),
+    "bad easy hr": ("The easy-run heart rate must be below your max heart rate ({max}).",
+                    "Detak jantung lari santai harus di bawah detak jantung maksimal ({max})."),
+    "stats source": ("Your entered stats", "Stats yang kamu isi"),
+    "stats data": ("From the stats you entered on {date}: until runs come in, later weeks are planned as if done.",
+                   "Dari stats yang kamu isi pada {date}: sampai ada data lari, minggu berikutnya dianggap dijalani "
+                   "sesuai plan."),
+
     # ---- programs ----
     "nav today": ("Today", "Hari ini"),
     "nav programs": ("Programs", "Program"),

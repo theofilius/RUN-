@@ -32,9 +32,9 @@ def runs():
 @pytest.fixture
 def no_races(monkeypatch):
     """Isolate the planner from the races in config.py."""
-    import src.analysis.races as races
     import src.planner.plan_generator as plan_generator
+    from src.athlete import ATHLETE
 
-    monkeypatch.setattr(races, "RACES", {})
+    monkeypatch.setattr(ATHLETE, "races", {})
     monkeypatch.setattr(plan_generator, "GOAL_RACE", {"name": "test", "date": None, "distance_km": 21.1,
                                                       "target_time": "2:50:00"})

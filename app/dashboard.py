@@ -41,17 +41,18 @@ from src.analysis.race_postmortem import METRICS, compare_races, race_rows
 from src.analysis.races import race_list
 from src.analysis.run_review import review
 from src.analysis.run_conditions import aqi_label, combine_air, next_hours, window_conditions
+from src.athlete import ATHLETE, use
 from src.config import (
-    COMPARE_WEEKS, EASY_HR_MAX, GOAL_RACE, HOME_CITY, MAX_HR, PLAN_START, REFERENCE_HR, RUN_HOURS, RUNS_PER_WEEK,
-    TARGET_EASY_PCT,
+    COMPARE_WEEKS, GOAL_RACE, HOME_CITY, PLAN_START, REFERENCE_HR, RUN_HOURS, RUNS_PER_WEEK, TARGET_EASY_PCT,
 )
-from src import programs
+from src import programs, users
 from src.evidence import SOURCES
 from src.goal_settings import DISTANCES, distance_name, load_goal
 from src.loaders.forecast_openmeteo import fetched_at, load_forecast
 from src.loaders.garmin_api import KEY_WARN_DAYS, SYNC_HOURS, KeyRejected, api_key, key_days_left, sync, synced_at
 from src.loaders.fit_activities import ACTIVITY_DIR, load_splits
 from src.loaders.iqair import load_current
+from src.loaders.manual_stats import covered_until as stats_covered_until, runs_from_stats
 from src.planner.month_plan import build_month_plan, covered_until, covered_until_from_file, current_week, \
     weekly_fitness_gain
 from src.planner.plan_generator import RACE_PACE_MAX_KM
@@ -66,9 +67,9 @@ INK = "#000000"          # text and the main series
 MUTED = "#6B6862"        # secondary text (black mixed into paper)
 GRID = "#D6D1C4"         # hairlines
 
-DATA_DIR = ROOT / "data"
+DATA_ROOT = ROOT / "data"     # shared: the users list, weather and air for the city
 ASSETS = Path(__file__).resolve().parent / "assets"
-FORECAST_CACHE = DATA_DIR / "forecast_cache.csv"
+FORECAST_CACHE = DATA_ROOT / "forecast_cache.csv"
 HARD = ("tempo", "interval")
 
 
@@ -95,7 +96,7 @@ def get_forecast():
 @st.cache_data(ttl=1800)
 def get_air_now():
     """Measured AQI from IQAir, or None without an API key."""
-    return load_current(DATA_DIR / "iqair_cache.json", HOME_CITY, ROOT)
+    return load_current(DATA_ROOT / "iqair_cache.json", HOME_CITY, ROOT)
 
 
 def sync_garmin():
@@ -229,6 +230,20 @@ def page_css():
     .nav a {{ color:inherit !important; text-decoration:none !important; font-weight:600; padding:6px 0 8px;
               margin-bottom:-1px; border-bottom:2px solid transparent; opacity:0.6; }}
     .nav a.on {{ border-bottom-color:{RED}; opacity:1; }}
+    .nav .who {{ margin-left:auto; align-self:center; font-size:0.85rem; opacity:0.75; }}
+    .nav .who a {{ border:none; padding:0; text-decoration:underline !important; font-weight:600; }}
+
+    /* Welcome: the name of the app, big, and nothing else. */
+    .splash {{ text-align:center; margin:16vh 0 28px; }}
+    .splash .mark {{ font-size:clamp(4.5rem, 16vw, 9rem); font-weight:800; line-height:0.9; letter-spacing:-0.03em; }}
+    .splash .mark span {{ color:{RED}; }}
+    .splash a.btn, .runner a.btn {{ display:inline-block; background:{RED}; color:#fff !important;
+        text-decoration:none !important; font-weight:600; border-radius:0.5rem; padding:0.55rem 2.6rem; }}
+    .splash a.btn {{ margin-top:22px; }}
+    .runner {{ display:flex; justify-content:space-between; align-items:center; gap:16px; }}
+    .runner a.btn {{ padding:0.45rem 1.6rem; }}
+    .splash.small {{ margin:2vh 0 10px; }}
+    .splash.small .mark {{ font-size:3rem; }}
     a.more {{ color:{RED} !important; font-weight:600; text-decoration:none !important; }}
 
     /* Programs: a list of rules, not cards */
@@ -668,6 +683,101 @@ def sidebar_weather():
             st.caption(t("forecast updated", time=f"{fetched_at(FORECAST_CACHE):%H:%M}"))
 
 
+# ---------- welcome and runners ----------
+
+def link(text, **params):
+    """A link within the app that keeps the runner and the language (user=None leaves the runner)."""
+    query = "&".join(f"{k}={v}" for k, v in {"user": user_id, **params, "lang": lang}.items() if v is not None)
+    return f"<a href='?{query}' target='_self'>{text}</a>"
+
+
+def welcome_page():
+    """RUN!! and a start button - the way in.
+
+    The buttons here are plain links: a real page load, so the address always says
+    who is running (a reload or the language menu keeps it) and the browser shows
+    it is loading while a runner's data is read.
+    """
+    html(f"<div class='splash'><div class='mark'>RUN<span>!!</span></div>"
+         f"{link(t('start'), page='users').replace('<a ', '<a class=btn ')}</div>")
+
+
+def users_page():
+    """Pick a runner, or add one from their stats."""
+    html("<div class='splash small'><div class='mark'>RUN<span>!!</span></div></div>")
+    st.subheader(t("who runs"))
+    for runner in user_store["users"]:
+        about = (t("user from stats", date=t.date(pd.Timestamp(runner["stats"]["as_of"]), weekday=False))
+                 if runner["source"] == "stats" else t("user from data"))
+        choose = link(t("choose"), user=runner["id"], page="today").replace("<a ", "<a class=btn ")
+        html(f"<div class='program runner'><div><div class='name'>{escape(runner['name'])}</div>"
+             f"<div class='meta'>{about}</div></div>{choose}</div>")
+    with st.expander(t("new user"), expanded=len(user_store["users"]) == 1):
+        new_user_form()
+
+
+def new_user_form():
+    """Name and the stats the planner needs (users.STAT_FIELDS), each with why it is asked."""
+    st.caption(t("stats intro"))
+    name = st.text_input(t("user name"), key="nu-name")
+    c1, c2 = st.columns(2)
+    sex = c1.radio(t("sex"), ["male", "female"], format_func=lambda s: t("sex " + s), horizontal=True,
+                   key="nu-sex", help=t("why sex"))
+    age = c2.number_input(t("age"), min_value=10, max_value=90, value=25, key="nu-age", help=t("why age"))
+    knows_max = st.checkbox(t("know max hr"), key="nu-knows-max", help=t("why max hr"))
+    max_hr = st.number_input(t("max hr"), min_value=120, max_value=230, value=190, key="nu-max") if knows_max else None
+    st.markdown(f"**{t('last 4 weeks')}**")
+    c3, c4, c5 = st.columns(3)
+    runs_per_week = c3.number_input(t("runs per week"), min_value=1, max_value=7, value=3, key="nu-runs",
+                                    help=t("why runs per week"))
+    weekly_km = c4.number_input(t("weekly km"), min_value=1.0, max_value=200.0, value=15.0, step=0.5, key="nu-km",
+                                help=t("why weekly km"))
+    longest_km = c5.number_input(t("longest km"), min_value=1.0, max_value=60.0, value=6.0, step=0.5,
+                                 key="nu-long", help=t("why longest km"))
+    c6, c7 = st.columns(2)
+    pace = c6.text_input(t("easy pace"), value="7:30", key="nu-pace", help=t("why easy pace"))
+    easy_hr = c7.number_input(t("easy hr"), min_value=80, max_value=220, value=145, key="nu-hr",
+                              help=t("why easy pace"))
+    race = None
+    if st.checkbox(t("has race"), key="nu-has-race", help=t("why race")):
+        r1, r2, r3 = st.columns(3)
+        distance = r1.selectbox(t("distance"), list(DISTANCES), format_func=lambda d: t("dist " + d), key="nu-dist")
+        race_time = r2.text_input(t("race time"), value="0:35:00", key="nu-time")
+        race_day = r3.date_input(t("race date"), value=today - pd.Timedelta(days=14), max_value=today,
+                                 key="nu-race-day")
+        race = {"distance_km": DISTANCES[distance], "time": race_time, "date": race_day.isoformat()}
+    injured = st.checkbox(t("injured"), key="nu-injured", help=t("why injured"))
+    if not st.button(t("create user"), type="primary"):
+        return
+
+    errors, pace_s = [], None
+    try:
+        pace_s = parse_time(pace)
+    except ValueError:
+        errors.append(t("bad pace"))
+    if race:
+        try:
+            race = {"distance_km": race["distance_km"], "time_s": parse_time(race["time"]), "date": race["date"]}
+        except ValueError:
+            errors.append(t("bad race time"))
+    stats = {"sex": sex, "age": int(age), "max_hr": int(max_hr) if max_hr else None,
+             "runs_per_week": int(runs_per_week), "weekly_km": float(weekly_km), "longest_km": float(longest_km),
+             "easy_pace_s": pace_s, "easy_hr": int(easy_hr), "race": race, "injured": injured}
+    if not name.strip():
+        errors.append(t("bad name"))
+    if longest_km > weekly_km:
+        errors.append(t("bad longest"))
+    if easy_hr >= users.max_hr(stats)[0]:
+        errors.append(t("bad easy hr", max=users.max_hr(stats)[0]))
+    if errors:
+        note("<br>".join(errors), accent=True)
+        return
+    runner = users.new_user(user_store, name, stats, today)
+    users.add(DATA_ROOT, user_store, runner)
+    st.query_params.update({"user": runner["id"], "page": "today", "lang": lang})
+    st.rerun()
+
+
 # ---------- page ----------
 
 st.set_page_config(page_title="Running Training Analyzer", layout="wide", initial_sidebar_state="auto")
@@ -680,22 +790,48 @@ t = Text(lang)
 state = st.session_state
 page_css()
 language_setting(lang)
+
+today = pd.Timestamp.now().date()
+
+# Who is running: ?user=... in the address. Without it, the welcome page and the runner choice.
+user_store = users.load(DATA_ROOT)
+user = users.find(user_store, st.query_params.get("user") or "")
+user_id = user["id"] if user else None
+if user is None:
+    if st.query_params.get("page") == "users":
+        users_page()
+    else:
+        welcome_page()
+    st.stop()
+use(users.athlete(user))
+MAX_HR, EASY_HR_MAX = ATHLETE.max_hr, ATHLETE.easy_hr_max
+DATA_DIR = users.data_dir(DATA_ROOT, user)
+
 st.title("Running Training Analyzer")
 st.caption(t("tagline"))
 
-# Data: Garmin Connect through the Personal API (with GARMIN_API_KEY in .env), or a CSV export.
-GARMIN = "garmin"
-csv_files = sorted(p for p in DATA_DIR.glob("*.csv") if p.name not in ("weather_cache.csv", "forecast_cache.csv"))
-sources = ([GARMIN] if api_key(ROOT) else []) + csv_files
+# Data: Garmin Connect through the Personal API (with GARMIN_API_KEY in .env), a CSV export,
+# or - for a runner who started from their stats - the runs those stats describe.
+GARMIN, STATS = "garmin", "stats"
+if user["source"] == "stats":
+    sources = [STATS]
+else:
+    csv_files = sorted(p for p in DATA_DIR.glob("*.csv") if p.name not in ("weather_cache.csv", "forecast_cache.csv"))
+    sources = ([GARMIN] if api_key(ROOT) else []) + csv_files
 if not sources:
     note(t("no data", folder=DATA_DIR), accent=True)
     st.stop()
 with st.sidebar:
     source = st.selectbox(t("data source"), sources,
-                          format_func=lambda s: t("garmin source") if s == GARMIN else s.name)
+                          format_func=lambda s: t("garmin source") if s == GARMIN else
+                          t("stats source") if s == STATS else s.name)
 from_api = source == GARMIN
 s1, s2 = st.columns([4, 1.3], vertical_alignment="center")
-if from_api:
+if source == STATS:
+    runs = runs_from_stats(user["stats"], MAX_HR)
+    covered = stats_covered_until(user["stats"])
+    s1.caption(t("stats data", date=t.date(pd.Timestamp(user["stats"]["as_of"]), weekday=False)))
+elif from_api:
     last_sync = synced_at(DATA_DIR)
     stale = last_sync is None or pd.Timestamp.now() - last_sync > pd.Timedelta(hours=SYNC_HOURS)
     if s2.button(t("sync now"), use_container_width=True) or stale:
@@ -728,7 +864,8 @@ if forecast is not None:
     forecast = combine_air(forecast, air_now)
 
 runs_by_day = runs.groupby(runs["start_time"].dt.date)
-data_key = str(last_sync) if from_api else f"{source}:{Path(source).stat().st_mtime}"
+data_key = user_id + ":" + (str(last_sync) if from_api else user["stats"]["as_of"] if source == STATS
+                            else f"{source}:{Path(source).stat().st_mtime}")
 page = st.query_params.get("page", "today")
 
 
@@ -766,12 +903,6 @@ def plan_program(program_json, data_key, today, covered, _runs):
 
 def program_plan(program):
     return plan_program(json.dumps(program, sort_keys=True), data_key, today, covered, runs)
-
-
-def link(text, **params):
-    """A link within the app that keeps the language."""
-    query = "&".join(f"{k}={v}" for k, v in {**params, "lang": lang}.items() if v is not None)
-    return f"<a href='?{query}' target='_self'>{text}</a>"
 
 
 def milestone_label(program):
@@ -1023,7 +1154,7 @@ def day_cell(program, days, day, selected):
         classes.append("sel")
     classes.append("mid" if day.weekday() in (2, 3) else "end" if day.weekday() >= 4 else "start")
     km = f"{plan_day.distance_km:g} km" if is_run else "&nbsp;"
-    href = f"?page=programs&program={program['id']}&day={day.isoformat()}&lang={lang}"
+    href = f"?user={user_id}&page=programs&program={program['id']}&day={day.isoformat()}&lang={lang}"
     return (f"<div class='{' '.join(classes)}' tabindex='0'><a class='go' href='{href}' target='_self'></a>"
             f"<div class='n'>{day.day}</div>"
             f"<div class='k'>{kind_name(plan_day.kind, short=True)}</div><div class='d'>{km}</div>"
@@ -1150,7 +1281,8 @@ def goal_inputs(prefix, program=None):
     Returns the chosen values.
     """
     base = program or {"distance_km": 21.1, "target_time": None, "race_date": None,
-                       "start_date": today.isoformat(), "weeks": programs.DEFAULT_WEEKS}
+                       "start_date": max(today, pd.Timestamp(covered).date() + pd.Timedelta(days=1)).isoformat(),
+                       "weeks": programs.DEFAULT_WEEKS}
     key = lambda name: f"{prefix}-{name}"
     c1, c2 = st.columns(2)
     state.setdefault(key("distance"), distance_name(base["distance_km"]))
@@ -1312,19 +1444,21 @@ def program_detail(program):
         if st.button(t("delete now"), disabled=not sure):
             programs.remove(DATA_DIR, store, program["id"])
             st.query_params.clear()
-            st.query_params.update({"page": "programs", "lang": lang})
+            st.query_params.update({"user": user_id, "page": "programs", "lang": lang})
             st.rerun()
 
 
 # ---- programs: what you train for (data/programs.json); the active one plans the home page ----
-store = programs.migrate(DATA_DIR, load_goal(), PLAN_START)   # the first time, your old goal becomes a program
+store = (programs.migrate(DATA_DIR, load_goal(), PLAN_START) if user["source"] != "stats"   # tee's old goal
+         else programs.load(DATA_DIR))
 for p in store["programs"]:   # a race that passes a milestone moves its program to stage 2
     if programs.stage(p) == "milestone" and (passed := programs.find_pass(p, known)):
         programs.update(DATA_DIR, store, p["id"], milestone={**p["milestone"], "passed": passed})
 program = programs.active(store)
 html("<div class='nav'>" + "".join(
     link(t("nav " + key), page=key).replace("<a ", f"<a class='{'on' if page == key else ''}' ")
-    for key in ("today", "programs")) + "</div>")
+    for key in ("today", "programs"))
+    + f"<span class='who'>{escape(user['name'])} · {link(t('switch user'), user=None, page='users')}</span></div>")
 sidebar_weather()
 if page == "programs":
     programs_page()
@@ -1338,7 +1472,9 @@ if program and programs.is_live(program, today):
     weeks = program_plan(program)
 else:
     goal = {**GOAL_RACE, "target_time": None, "date": None}
-    weeks = build_month_plan(runs, covered, plan_start=today, today=today, goal_race=goal)
+    # From today, or from the first day the data does not cover yet (stats describe this week too).
+    first_day = max(today, pd.Timestamp(covered).date() + pd.Timedelta(days=1))
+    weeks = build_month_plan(runs, covered, plan_start=first_day, today=today, goal_race=goal)
 this_week = current_week(weeks)
 plan = this_week["plan"]
 ctx = plan["context"]

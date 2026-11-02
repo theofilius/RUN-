@@ -10,7 +10,7 @@ import pandas as pd
 
 from src.analysis.easy_check import easy_seconds
 from src.analysis.races import race_list
-from src.config import COMPARE_WEEKS, EASY_HR_MAX
+from src.config import COMPARE_WEEKS
 from src.units import format_duration, format_pace
 
 
@@ -57,7 +57,7 @@ METRICS = {
     "longest_run_km": ("Longest run (km)", "{:.1f}", "max distance of any single run"),
     "weeks_with_runs": ("Weeks with at least 1 run", "{:.0f}", "count of 7-day periods (counted back from race) with a run"),
     "avg_hr": ("Average HR (bpm)", "{:.0f}", "each run's avg HR weighted by its moving time"),
-    "easy_time_pct": ("Easy time (%)", "{:.0f}", f"moving time at HR <= {EASY_HR_MAX:.0f} bpm / total moving time "
+    "easy_time_pct": ("Easy time (%)", "{:.0f}", "moving time at HR <= the easy limit / total moving time "
                       "(per second where a .fit file exists, else by each run's average HR)"),
     "efficiency": ("Efficiency (m/min per bpm)", "{:.2f}", "median of (distance m / moving minutes) / avg HR; higher = fitter"),
     "heat_slowdown_pct": ("Heat slowdown (%)", "{:.1f}", "mean slowdown from air temp + dew point (heat_adjust.py)"),
@@ -68,7 +68,7 @@ def race_result(runs, race_start):
     """The race activity itself, matched by its exact start time."""
     match = runs[runs["start_time"] == race_start]
     if match.empty:
-        raise ValueError(f"No run starts at {race_start}; check the race in RACES in config.py")
+        raise ValueError(f"No run starts at {race_start}; check the race in RACES (config.py) or mark it a race in Garmin")
     return match.iloc[0]
 
 

@@ -24,7 +24,7 @@ One hot week can make the fitness line look worse.
 import pandas as pd
 
 from src.analysis.fitness_trend import training_runs_with_efficiency
-from src.config import EASY_HR_MAX
+from src.athlete import ATHLETE
 
 CHECK_WEEKS = 1
 POSTPONE_WEEKS = 1
@@ -83,8 +83,8 @@ def evaluate(weeks, runs):
         "easy_pct": easy_pct,
         "efficiency_change": change,
         # easy pace at the easy HR limit: what the change means on your easy runs
-        "easy_pace_before_s": 1000 / (before * EASY_HR_MAX) * 60 if before else None,
-        "easy_pace_now_s": 1000 / (now * EASY_HR_MAX) * 60 if now else None,
+        "easy_pace_before_s": 1000 / (before * ATHLETE.easy_hr_max) * 60 if before else None,
+        "easy_pace_now_s": 1000 / (now * ATHLETE.easy_hr_max) * 60 if now else None,
         "checks": checks,
         "on_track": all(checks.values()),
     }

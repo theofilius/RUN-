@@ -31,9 +31,10 @@ import pandas as pd
 from src.analysis.easy_check import weekly_check
 from src.analysis.fitness_trend import training_runs_with_efficiency
 from src.analysis.races import race_mask
+from src import athlete
+from src.athlete import ATHLETE
 from src.config import (
-    EASY_HR_FRACTION, EASY_HR_MAX, GOAL_RACE, INJURED_LAST_12_MONTHS, LONG_RUN_DAY, MAX_HR, OTHER_RUN_DAYS,
-    RUNS_PER_WEEK, START_RUNS_PER_WEEK, STEP_BACK_EVERY, WEEKLY_GROWTH,
+    GOAL_RACE, LONG_RUN_DAY, OTHER_RUN_DAYS, RUNS_PER_WEEK, STEP_BACK_EVERY, WEEKLY_GROWTH,
 )
 from src.evidence import describe
 from src.planner import safety_rules
@@ -68,19 +69,30 @@ def goal_pace(goal_race):
     return seconds / goal_race["distance_km"]
 FUEL_AFTER_MIN = 60         # Racinais 2015: fluids, sodium and carbs for exercise over 1 h
 
-# Heart-rate zones as (low, high) bpm.
-WARMUP_HR = (round(0.60 * MAX_HR), round(0.70 * MAX_HR))  # very easy jog / brisk walk
-EASY_HR = (round(0.70 * MAX_HR), EASY_HR_MAX)             # below the first threshold
-# Thresholds of recreational runners (Muñoz 2014): VT1 ~77-79%, VT2 ~91% of max HR.
-TEMPO_HR = (round(0.85 * MAX_HR), round(0.90 * MAX_HR))   # "comfortably hard": between the two, below VT2
-INTERVAL_HR = (round(0.91 * MAX_HR), round(0.95 * MAX_HR))  # hard repeats: above VT2
 REP_KM, JOG_KM = 0.8, 0.4                                   # 800 m repeats, 400 m jog between
 STRIDES_AFTER_RACE_DAYS = 7                                 # no strides in the first week after a race
 STEP_BACK_SHARE = 0.75                                      # step-back week: ~25% less than last week
 TAPER_SHARE = {"taper": 0.7, "race week": 0.5}              # Bosquet 2007: cut volume 41-60% over 2 weeks
 
-WARMUP_NOTE = f"Start with 3-5 min brisk walking, then jog very gently. Walk if HR passes {WARMUP_HR[1]}."
 COOLDOWN_NOTE = "Jog very gently, then walk the last few minutes. Drink and stretch afterwards."
+
+
+def set_zones():
+    """Heart-rate zones as (low, high) bpm, from the current runner's max HR.
+
+    Module-level so every function reads them; athlete.use() calls this again on a switch.
+    """
+    global WARMUP_HR, EASY_HR, TEMPO_HR, INTERVAL_HR, WARMUP_NOTE
+    max_hr = ATHLETE.max_hr
+    WARMUP_HR = (round(0.60 * max_hr), round(0.70 * max_hr))    # very easy jog / brisk walk
+    EASY_HR = (round(0.70 * max_hr), ATHLETE.easy_hr_max)       # below the first threshold
+    # Thresholds of recreational runners (Muñoz 2014): VT1 ~77-79%, VT2 ~91% of max HR.
+    TEMPO_HR = (round(0.85 * max_hr), round(0.90 * max_hr))     # "comfortably hard": between the two, below VT2
+    INTERVAL_HR = (round(0.91 * max_hr), round(0.95 * max_hr))  # hard repeats: above VT2
+    WARMUP_NOTE = f"Start with 3-5 min brisk walking, then jog very gently. Walk if HR passes {WARMUP_HR[1]}."
+
+
+athlete.on_change(set_zones)
 
 
 @dataclass
@@ -122,7 +134,7 @@ class Workout:
     def is_hard(self):
         """Tempo, intervals, or a goal-pace block above easy heart rate."""
         return any(step.name in ("tempo", "interval")
-                   or (step.name == "race pace" and step.hr_max > EASY_HR_MAX) for step in self.steps)
+                   or (step.name == "race pace" and step.hr_max > ATHLETE.easy_hr_max) for step in self.steps)
 
 
 def round_half(km):
@@ -194,9 +206,9 @@ def choose_week(ctx):
         return "fix easy", (
             f"Only {ctx['easy_pct']:.0f}% of your last {LOOKBACK_WEEKS} weeks of training was easy (target: "
             f"mostly easy). Adding hard work on top would pile on fatigue, so every run stays easy "
-            f"(HR ≤ {EASY_HR_MAX}) and there is no tempo."
+            f"(HR ≤ {ATHLETE.easy_hr_max}) and there is no tempo."
         ), ["rosenblat2025", "boullosa2020", "munoz2014", "own"]
-    if INJURED_LAST_12_MONTHS:
+    if ATHLETE.injured_last_12_months:
         return "build", (
             f"Easy running is under control ({ctx['easy_pct']:.0f}% easy), so one tempo run is added. "
             f"No extra runs, because you had an injury in the last 12 months - the strongest injury "
@@ -483,10 +495,10 @@ def build_plan(runs, plan_start, long_from=None, long_grow=True, runs_from=None,
 
     # 1. Number of runs.
     if runs_from is None:
-        n_runs, add_run = START_RUNS_PER_WEEK, False
+        n_runs, add_run = ATHLETE.start_runs_per_week, False
     else:
         n_runs = runs_from
-        add_run = runs_grow and not INJURED_LAST_12_MONTHS and phase is None
+        add_run = runs_grow and not ATHLETE.injured_last_12_months and phase is None
     max_runs = min(RUNS_PER_WEEK, 1 + len(OTHER_RUN_DAYS))
     n_runs = min(max_runs, n_runs)
 
@@ -782,31 +794,35 @@ def build_plan(runs, plan_start, long_from=None, long_grow=True, runs_from=None,
         "days": week,
         "checks": checks,
         "hr_settings": hr_settings(runs),
-        "easy_pace_s": pace_at_hr(ctx["efficiency"], EASY_HR_MAX),
+        "easy_pace_s": pace_at_hr(ctx["efficiency"], ATHLETE.easy_hr_max),
         "tempo_pace_s": pace_at_hr(ctx["efficiency"], TEMPO_HR[0]),
     }
 
 
 def hr_settings(runs):
     """Evidence for the two numbers every HR target depends on."""
-    near_max = runs[runs["max_hr"] >= MAX_HR - 5]
-    max_note = (
-        f"{len(near_max)} runs on different days reached {near_max['max_hr'].min():.0f}-"
-        f"{near_max['max_hr'].max():.0f} bpm, so {MAX_HR} is unlikely to be a single wrist-sensor spike. "
-        f"A measured max beats the 208 - 0.7 x age formula, which is off by ~10 bpm for many people."
-        if len(near_max) > 1 else
-        f"Only one run reached within 5 bpm of {MAX_HR}; it could be a wrist-sensor spike."
-    )
+    max_hr, easy_max = ATHLETE.max_hr, ATHLETE.easy_hr_max
+    near_max = runs[runs["max_hr"] >= max_hr - 5]
+    if ATHLETE.max_hr_source == "age":
+        max_note = (f"Estimated from your age: 208 - 0.7 x age. Individuals differ from it by about 10 bpm, so "
+                    "enter a measured max (a hard race finish or a test) when you have one.")
+    elif ATHLETE.max_hr_source == "entered":
+        max_note = "The max HR you entered. A measured value beats the 208 - 0.7 x age formula (off by ~10 bpm)."
+    elif len(near_max) > 1:
+        max_note = (f"{len(near_max)} runs on different days reached {near_max['max_hr'].min():.0f}-"
+                    f"{near_max['max_hr'].max():.0f} bpm, so {max_hr} is unlikely to be a single wrist-sensor spike. "
+                    f"A measured max beats the 208 - 0.7 x age formula, which is off by ~10 bpm for many people.")
+    else:
+        max_note = f"Only one run reached within 5 bpm of {max_hr}; it could be a wrist-sensor spike."
     easy_note = (
-        f"{EASY_HR_FRACTION:.0%} of max HR. In lab tests the top of easy effort was at ~79% of max HR "
-        f"in 101 recreational male runners and ~75% in the least-trained of 971 men, +/-5% between "
-        f"people; at 80% almost half of runners were already above it. {EASY_HR_MAX} sits between the "
-        f"two; only a threshold test would give your own number."
+        f"{ATHLETE.easy_hr_fraction:.0%} of max HR. In lab tests the top of easy effort was at ~79% (men) and "
+        f"~84% (women) of max HR in recreational runners, and ~75% / ~78% in the least-trained, +/-5% between "
+        f"people. {easy_max} sits between the two; only a threshold test would give your own number."
     )
     return [
-        {"setting": f"Max HR {MAX_HR} bpm", "evidence": max_note,
+        {"setting": f"Max HR {max_hr} bpm", "evidence": max_note,
          "sources": describe(["tanaka2001", "sartor2018"])},
-        {"setting": f"Easy limit {EASY_HR_MAX} bpm", "evidence": easy_note,
+        {"setting": f"Easy limit {easy_max} bpm", "evidence": easy_note,
          "sources": describe(["nuuttila2025", "benitez2025"])},
     ]
 

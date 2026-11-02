@@ -22,6 +22,7 @@ The app shows the formula and the data behind every number it gives.
 
 | Feature | What it tells you |
 |---|---|
+| **Runners** | A welcome page (RUN!! → Start) to pick who is running or add a runner. The first runner, tee, uses the Garmin data in `data/`; a new runner enters a name and a few stats (sex, age, max HR if known, the last 4 weeks' runs, km and longest run, an easy run's pace and heart rate, a recent race, injury), each with why it is asked. Those stats become the runs they describe, so every analysis and the planner work unchanged. No passwords: a local app |
 | **Race post-mortem** | Compares the weeks before your last two races: volume, runs per week, longest run, average HR, easy share, efficiency, heat |
 | **Aerobic fitness trend** | Estimated pace at a fixed heart rate (e.g. pace @ 160 bpm) per run and per month |
 | **Easy-run honesty check** | Weekly easy vs hard time against an 80/20 target, plus runs you *called* easy whose heart rate says otherwise |
@@ -257,6 +258,8 @@ src/
   units.py                seconds ↔ "m:ss" / "h:mm:ss"
   env.py                  API keys from the environment or .env
   programs.py             saved training programs (data/programs.json), one active, milestone stages
+  users.py                runners (data/users.json): tee's data/ or a new runner's data/users/<id>/
+  athlete.py              the current runner's settings (max HR, easy limit, injury, races)
   loaders/
     csv_garmin.py         Garmin CSV → clean table (numbers, seconds, km)
     garmin_api.py         Garmin Personal API sync → the same table (needs GARMIN_API_KEY in .env)
@@ -264,6 +267,7 @@ src/
     weather_openmeteo.py  hourly air temp + dew point for past runs, cached
     forecast_openmeteo.py weather + air-quality forecast, cached
     iqair.py              optional measured AQI (needs IQAIR_API_KEY in .env)
+    manual_stats.py       a new runner's entered stats → the runs they describe
   analysis/
     races.py              which runs are races (Garmin Event Type or RACES)
     run_review.py         one run against its planned menu: distance, intensity, pace, efficiency
@@ -315,4 +319,6 @@ CSV and Garmin API loaders are interchangeable, and a Strava loader could be add
 - [x] Optional per-second HR from activity `.fit` files
 - [x] Phase 4: automatic import via the Garmin Personal API (pull-only)
 - [x] Milestone programs, weekly check-ins, run analysis and splits
+- [x] Several runners: welcome page, new runners from entered stats
+- [ ] TCX / FIT folder loader (Huawei and other watches)
 - [ ] Strava bulk-export loader

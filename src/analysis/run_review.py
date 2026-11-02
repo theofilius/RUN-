@@ -21,7 +21,7 @@ import pandas as pd
 
 from src.analysis.race_postmortem import efficiency
 from src.analysis.races import race_mask
-from src.config import EASY_HR_MAX
+from src.athlete import ATHLETE
 
 SHORT, LONG = 0.90, 1.15
 EASY_SHARE_OK, EASY_SHARE_MOSTLY = 0.80, 0.50
@@ -35,7 +35,7 @@ def easy_share(run):
         return run["zone_easy_s"] / run["zone_total_s"]
     if pd.isna(run.get("avg_hr")):
         return None
-    return 1.0 if run["avg_hr"] <= EASY_HR_MAX else 0.0
+    return 1.0 if run["avg_hr"] <= ATHLETE.easy_hr_max else 0.0
 
 
 def recent_efficiency(runs, before):
@@ -66,7 +66,7 @@ def review(run, day, runs):
     else:
         result["intensity"] = "easy" if share >= EASY_SHARE_OK else "mostly easy" if share >= EASY_SHARE_MOSTLY \
             else "too hard"
-    result["hr_limit"] = EASY_HR_MAX
+    result["hr_limit"] = ATHLETE.easy_hr_max
 
     main = None
     if planned:

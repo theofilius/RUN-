@@ -11,7 +11,8 @@ a run titled "Base" or "recovery" with a high average HR was not easy.
 import pandas as pd
 
 from src.analysis.races import race_mask
-from src.config import EASY_HR_MAX, TARGET_EASY_PCT
+from src.athlete import ATHLETE
+from src.config import TARGET_EASY_PCT
 
 # Words in a run title that mean "this was meant to be easy".
 EASY_TITLE_WORDS = ["base", "easy", "recov", "long"]
@@ -32,7 +33,7 @@ def easy_seconds(runs):
     EASY_HR_MAX. Without it: the whole run if its average HR is at or below
     EASY_HR_MAX, otherwise nothing.
     """
-    by_average = runs["moving_time_s"].where(runs["avg_hr"] <= EASY_HR_MAX, 0)
+    by_average = runs["moving_time_s"].where(runs["avg_hr"] <= ATHLETE.easy_hr_max, 0)
     if "zone_easy_s" not in runs:
         return by_average
     share = runs["zone_easy_s"] / runs["zone_total_s"]
@@ -42,7 +43,7 @@ def easy_seconds(runs):
 def label_runs(runs):
     """Add is_easy (avg HR <= EASY_HR_MAX) and is_race columns."""
     labelled = runs.copy()
-    labelled["is_easy"] = labelled["avg_hr"] <= EASY_HR_MAX
+    labelled["is_easy"] = labelled["avg_hr"] <= ATHLETE.easy_hr_max
     labelled["is_race"] = race_mask(runs)
     return labelled
 
@@ -112,7 +113,7 @@ if __name__ == "__main__":
     print(wrong[["start_time", "title", "distance_km", "avg_hr"]].to_string(index=False))
 
     print("\nHOW")
-    print(f"  easy run   = average HR <= {EASY_HR_MAX:.0f} bpm (EASY_HR_FRACTION x MAX_HR in config.py)")
+    print(f"  easy run   = average HR <= {ATHLETE.easy_hr_max:.0f} bpm (EASY_HR_FRACTION x MAX_HR in config.py)")
     print("  easy %     = moving time of easy runs / total moving time, per Monday-Sunday week")
     print(f"  verdict    = on target >= {TARGET_EASY_PCT - 5}%, too much hard running >= 50%, else easy runs are not easy")
     print(f"  'called easy' = title contains one of {EASY_TITLE_WORDS}")

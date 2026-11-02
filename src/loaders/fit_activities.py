@@ -21,7 +21,7 @@ from fit_tool.fit_file import FitFile
 from fit_tool.profile.messages.record_message import RecordMessage
 from fit_tool.profile.messages.session_message import SessionMessage
 
-from src.config import EASY_HR_MAX
+from src.athlete import ATHLETE
 
 ACTIVITY_DIR = "activities"
 ZONES_CACHE = "zones_cache.csv"
@@ -37,8 +37,9 @@ def to_local(ms):
     return pd.to_datetime(ms, unit="ms", utc=True).tz_convert("Asia/Jakarta").tz_localize(None)
 
 
-def time_in_zones(path, easy_hr_max=EASY_HR_MAX):
-    """Seconds at or below / above easy_hr_max for one activity file, or None."""
+def time_in_zones(path, easy_hr_max=None):
+    """Seconds at or below / above easy_hr_max (default: the runner's easy limit) for one activity file, or None."""
+    easy_hr_max = easy_hr_max or ATHLETE.easy_hr_max
     times, heart_rates, start = [], [], None
     for record in FitFile.from_file(str(path)).records:
         message = record.message
@@ -125,7 +126,7 @@ def load_time_in_zones(activity_dir):
     rows = []
     for path in sorted(activity_dir.glob("*.fit")):
         modified = path.stat().st_mtime
-        hit = known.get((path.name, modified, EASY_HR_MAX))
+        hit = known.get((path.name, modified, ATHLETE.easy_hr_max))
         if hit is not None:
             zones = {c: getattr(hit, c) for c in columns}
         else:
@@ -134,7 +135,7 @@ def load_time_in_zones(activity_dir):
             except Exception:   # a corrupt or non-activity file should not stop the dashboard
                 zones = None
         if zones:
-            rows.append({**zones, "modified": modified, "easy_hr_max": EASY_HR_MAX})
+            rows.append({**zones, "modified": modified, "easy_hr_max": ATHLETE.easy_hr_max})
     table = pd.DataFrame(rows, columns=columns + ["modified", "easy_hr_max"])
     if rows:
         table.to_csv(cache_path, index=False)
