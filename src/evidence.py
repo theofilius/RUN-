@@ -196,6 +196,24 @@ SOURCES = {
                    "running programmes (56-839 runners, 4-24 weeks) only 0-21% did every session that way; "
                    "the authors ask for an 'acceptable threshold' set in advance but give no number.",
     },
+    "persinger2004": {
+        "cite": "Persinger et al. 2004, Med Sci Sports Exerc 36(9):1632-1636",
+        "doi": "10.1249/01.MSS.0000074670.03001.98",
+        "finding": "Talk test (recite a ~30-word passage aloud in the last 30 s of each 2-min stage, then: can "
+                   "you still speak comfortably?) in 16 healthy adults: the last 'yes' and the unsure stage matched "
+                   "the first ventilatory threshold; at the first 'no' intensity was always above it. On the "
+                   "treadmill the threshold was at 89% (+/-6) of peak HR, the last 'yes' at 82% (+/-9). "
+                   "Must be read aloud, not silently.",
+    },
+    "coyle1998": {
+        "cite": "Coyle 1998, Int J Sports Med 19(Suppl 2):S121-S124",
+        "doi": "10.1055/s-2007-971975",
+        "finding": "Cardiovascular drift: after 5-10 min of steady exercise stroke volume falls (~15% over "
+                   "10-50 min) and HR rises to make up for it, at the same pace. Heat, dehydration, higher "
+                   "intensity, low fitness and no heat acclimation make it larger; dehydration plus heat cut "
+                   "stroke volume 20-28%. Drinking enough to prevent dehydration kept HR remarkably stable "
+                   "(trained cyclists, 35 C).",
+    },
     "own": {
         "cite": "Planner default",
         "doi": None,

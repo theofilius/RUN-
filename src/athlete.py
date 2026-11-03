@@ -22,9 +22,13 @@ class Athlete:
     injured_last_12_months: bool = config.INJURED_LAST_12_MONTHS
     start_runs_per_week: int = config.START_RUNS_PER_WEEK
     races: dict = field(default_factory=lambda: dict(config.RACES))
+    talk_test_hr: int | None = None      # HR at the last stage you could still speak comfortably (Persinger 2004)
 
     @property
     def easy_hr_max(self):
+        """Top of easy: your talk test when you did one, otherwise a share of max HR."""
+        if self.talk_test_hr:
+            return int(self.talk_test_hr)
         return round(self.easy_hr_fraction * self.max_hr)   # whole bpm, like the watch shows
 
 

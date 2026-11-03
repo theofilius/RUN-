@@ -805,6 +805,25 @@ if user is None:
     st.stop()
 use(users.athlete(user))
 MAX_HR, EASY_HR_MAX = ATHLETE.max_hr, ATHLETE.easy_hr_max
+
+
+def talk_test_box():
+    """Enter (or remove) the HR of your talk test; it replaces the share of max HR as the easy limit."""
+    st.markdown(f"**{t('talk test title')}**")
+    st.markdown(t("talk test how"))
+    saved = users.talk_test_hr(user)
+    if saved:
+        st.caption(t("talk test saved", hr=saved, date=user["talk_test"]["date"]))
+    with st.form("talk test"):
+        hr = st.number_input(t("talk test hr"), min_value=round(0.6 * MAX_HR), max_value=MAX_HR - 1,
+                             value=int(saved or EASY_HR_MAX), step=1)
+        save, clear = st.columns(2)
+        if save.form_submit_button(t("talk test save")):
+            users.set_talk_test(DATA_ROOT, user_store, user_id, hr)
+            st.rerun()
+        if saved and clear.form_submit_button(t("talk test clear")):
+            users.set_talk_test(DATA_ROOT, user_store, user_id, None)
+            st.rerun()
 DATA_DIR = users.data_dir(DATA_ROOT, user)
 
 st.title("Running Training Analyzer")
@@ -1619,6 +1638,7 @@ with safety_slot:
         st.markdown("---")
         for s in plan["hr_settings"]:
             html(f"**{s['setting']}** - {s['evidence']}  \n<span class='muted'>Source: {escape(s['sources'])}</span>")
+        talk_test_box()
 
 # ---- 6. at a glance ----
 training = training_runs_with_efficiency(runs)

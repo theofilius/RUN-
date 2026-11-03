@@ -814,16 +814,27 @@ def hr_settings(runs):
                     f"A measured max beats the 208 - 0.7 x age formula, which is off by ~10 bpm for many people.")
     else:
         max_note = f"Only one run reached within 5 bpm of {max_hr}; it could be a wrist-sensor spike."
-    easy_note = (
-        f"{ATHLETE.easy_hr_fraction:.0%} of max HR. In lab tests the top of easy effort was at ~79% (men) and "
-        f"~84% (women) of max HR in recreational runners, and ~75% / ~78% in the least-trained, +/-5% between "
-        f"people. {easy_max} sits between the two; only a threshold test would give your own number."
-    )
+    if ATHLETE.talk_test_hr:
+        easy_note = (
+            f"From your talk test: the HR at the last stage you could still speak comfortably "
+            f"({easy_max / max_hr:.0%} of max HR). That stage matched the first ventilatory threshold in the "
+            f"lab, so it is your own number instead of an average share of max HR (+/-5% between people).")
+        easy_sources = ["persinger2004", "nuuttila2025"]
+    else:
+        easy_note = (
+            f"{ATHLETE.easy_hr_fraction:.0%} of max HR. In lab tests the top of easy effort was at ~79% (men) and "
+            f"~84% (women) of max HR in recreational runners, and ~75% / ~78% in the least-trained, +/-5% between "
+            f"people. {easy_max} sits between the two; a talk test gives your own number.")
+        easy_sources = ["nuuttila2025", "benitez2025"]
+    drift_note = ("After 5-10 minutes your HR keeps rising at the same pace (cardiovascular drift), more in heat "
+                  "and when you drink too little. Late in a hot easy run, slow down or walk to stay under the "
+                  "limit, and drink.")
     return [
         {"setting": f"Max HR {max_hr} bpm", "evidence": max_note,
          "sources": describe(["tanaka2001", "sartor2018"])},
         {"setting": f"Easy limit {easy_max} bpm", "evidence": easy_note,
-         "sources": describe(["nuuttila2025", "benitez2025"])},
+         "sources": describe(easy_sources)},
+        {"setting": "HR drift", "evidence": drift_note, "sources": describe(["coyle1998", "racinais2015"])},
     ]
 
 

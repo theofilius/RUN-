@@ -28,7 +28,8 @@ RACES = {
 # A run counts as "easy" if its average HR is at or below this share of MAX_HR.
 # 0.78 x 196 = 153 bpm. Lab studies put the top of easy at ~79% (Nuuttila 2025) and
 # ~75% (Benitez-Munoz 2025) of max HR for men, +/-5% between people; at 80% almost
-# half of runners are already above it. A lab or field test would beat any percentage.
+# half of runners are already above it. A talk test (Persinger 2004), entered in the dashboard,
+# replaces this share with your own number.
 EASY_HR_FRACTION = 0.78
 EASY_HR_MAX = round(EASY_HR_FRACTION * MAX_HR)  # whole bpm, like the watch shows
 

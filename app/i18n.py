@@ -657,6 +657,27 @@ TEXT = {
                  "untuk membandingkan lari, bukan hukum pasti - pelari yang lebih lambat kemungkinan kehilangan lebih banyak."),
     "table": ("Table", "Tabel"),
     "hr settings": ("Heart-rate settings - why these numbers?", "Pengaturan detak jantung - kenapa angka ini?"),
+    "talk test title": ("Your own easy limit: the talk test", "Batas easy milikmu sendiri: talk test"),
+    "talk test how": (
+        "1. Warm up 10 min, on a flat route.\n"
+        "2. Run 2-minute stages, each a little faster (about 15 s/km).\n"
+        "3. In the last 30 s of each stage, recite a ~30-word text **aloud** (not in your head), then ask: "
+        "*can I still speak comfortably?* Note the HR on your watch.\n"
+        "4. Stop at the first clear *no*. Your easy limit is the HR of the **last clear yes**.\n\n"
+        "In the lab that stage matched the first ventilatory threshold (Persinger 2004). Do it on a cool, "
+        "hydrated day: heat and too little water push HR up at the same effort (Coyle 1998).",
+        "1. Pemanasan 10 menit, di rute datar.\n"
+        "2. Lari per tahap 2 menit, tiap tahap sedikit lebih cepat (sekitar 15 dtk/km).\n"
+        "3. Di 30 detik terakhir tiap tahap, ucapkan teks ~30 kata **dengan suara keras** (bukan dalam hati), "
+        "lalu tanya diri sendiri: *masih bisa bicara dengan nyaman?* Catat HR di jam.\n"
+        "4. Berhenti di *tidak* pertama yang jelas. Batas easy-mu = HR di **ya terakhir yang jelas**.\n\n"
+        "Di lab, tahap itu cocok dengan ambang ventilasi pertama (Persinger 2004). Lakukan saat cuaca sejuk "
+        "dan cukup minum: panas dan kurang minum menaikkan HR di usaha yang sama (Coyle 1998)."),
+    "talk test hr": ("HR at your last clear yes (bpm)", "HR di ya terakhir yang jelas (bpm)"),
+    "talk test save": ("Use as my easy limit", "Pakai sebagai batas easy"),
+    "talk test clear": ("Remove, back to % of max HR", "Hapus, kembali ke % max HR"),
+    "talk test saved": ("Easy limit from your talk test: {hr} bpm (saved {date}).",
+                        "Batas easy dari talk test-mu: {hr} bpm (disimpan {date})."),
 
     # ---- sidebar weather ----
     "weather title": ("{city} weather", "Cuaca {city}"),

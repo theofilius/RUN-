@@ -84,14 +84,29 @@ def max_hr(stats):
     return round(208 - 0.7 * stats["age"]), "age"
 
 
+def talk_test_hr(user):
+    """The easy limit from the runner's talk test, or None (see set_talk_test)."""
+    return (user.get("talk_test") or {}).get("hr")
+
+
+def set_talk_test(data_root, store, user_id, hr, day=None):
+    """Save a talk test result (hr=None removes it, back to the share of max HR)."""
+    user = find(store, user_id)
+    if hr:
+        user["talk_test"] = {"hr": int(hr), "date": str(day or date.today())}
+    else:
+        user.pop("talk_test", None)
+    save(data_root, store)
+
+
 def athlete(user):
-    """The runner's settings: config.py for tee, otherwise from their stats."""
+    """The runner's settings: config.py for tee, otherwise from their stats; a talk test for both."""
     if user.get("source") != "stats":
-        return Athlete(name=user["name"])
+        return Athlete(name=user["name"], talk_test_hr=talk_test_hr(user))
     stats = user["stats"]
     hr, hr_source = max_hr(stats)
     return Athlete(name=user["name"], max_hr=hr, max_hr_source=hr_source,
                    easy_hr_fraction=EASY_HR_FRACTION_BY_SEX[stats["sex"]],
                    injured_last_12_months=bool(stats.get("injured")),
                    start_runs_per_week=max(2, min(RUNS_PER_WEEK, int(stats["runs_per_week"]))),
-                   races={})
+                   races={}, talk_test_hr=talk_test_hr(user))
