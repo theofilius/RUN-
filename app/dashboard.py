@@ -15,10 +15,13 @@ The page answers questions in the order a runner asks them:
 """
 
 import base64
+import hashlib
 import json
 import sys
+from datetime import time
 from html import escape
 from pathlib import Path
+from urllib.parse import urlencode
 
 # Streamlit runs this file directly, so tell Python where the project root is
 # (one folder up) so that "from src..." and "from i18n" imports work.
@@ -52,7 +55,8 @@ from src.loaders.forecast_openmeteo import fetched_at, load_forecast
 from src.loaders.garmin_api import KEY_WARN_DAYS, SYNC_HOURS, KeyRejected, api_key, key_days_left, sync, synced_at
 from src.loaders.fit_activities import ACTIVITY_DIR, load_splits
 from src.loaders.iqair import load_current
-from src.loaders.manual_stats import covered_until as stats_covered_until, runs_from_stats
+from src.loaders import manual_runs
+from src.loaders.manual_stats import covered_until as stats_covered_until, history_end, runs_from_stats
 from src.planner.month_plan import build_month_plan, covered_until, covered_until_from_file, current_week, \
     weekly_fitness_gain
 from src.planner.plan_generator import RACE_PACE_MAX_KM
@@ -691,6 +695,21 @@ def link(text, **params):
     return f"<a href='?{query}' target='_self'>{text}</a>"
 
 
+def goto(**params):
+    """Load the app at ?params: a real page load, so the browser's address shows them.
+
+    (In Streamlit 1.37, st.query_params changed just before st.rerun() never reach the
+    address bar, so a reload would forget them - here: a new runner or program.)
+    """
+    query = urlencode({k: v for k, v in {**params, "lang": lang}.items() if v is not None})
+    components.html(f"""<script>
+    const s = window.parent.document.createElement('script');
+    s.textContent = {json.dumps(f"location.replace('?{query}')")};
+    window.parent.document.head.append(s);
+    </script>""", height=0)
+    st.stop()
+
+
 def welcome_page():
     """RUN!! and a start button - the way in.
 
@@ -774,8 +793,7 @@ def new_user_form():
         return
     runner = users.new_user(user_store, name, stats, today)
     users.add(DATA_ROOT, user_store, runner)
-    st.query_params.update({"user": runner["id"], "page": "today", "lang": lang})
-    st.rerun()
+    goto(user=runner["id"], page="today")
 
 
 # ---------- page ----------
@@ -846,10 +864,13 @@ with st.sidebar:
                           t("stats source") if s == STATS else s.name)
 from_api = source == GARMIN
 s1, s2 = st.columns([4, 1.3], vertical_alignment="center")
+logged = manual_runs.load(DATA_DIR) if source == STATS else []
 if source == STATS:
-    runs = runs_from_stats(user["stats"], MAX_HR)
-    covered = stats_covered_until(user["stats"])
-    s1.caption(t("stats data", date=t.date(pd.Timestamp(user["stats"]["as_of"]), weekday=False)))
+    # the stats' history, plus the runs logged by hand since (src/loaders/manual_runs.py)
+    runs = manual_runs.with_logged(runs_from_stats(user["stats"], MAX_HR), logged)
+    covered = manual_runs.covered(stats_covered_until(user["stats"]), logged, pd.Timestamp.now().date())
+    stats_day = t.date(pd.Timestamp(user["stats"]["as_of"]), weekday=False)
+    s1.caption(t("logged data", date=stats_day, n=len(logged)) if logged else t("stats data", date=stats_day))
 elif from_api:
     last_sync = synced_at(DATA_DIR)
     stale = last_sync is None or pd.Timestamp.now() - last_sync > pd.Timedelta(hours=SYNC_HOURS)
@@ -883,9 +904,72 @@ if forecast is not None:
     forecast = combine_air(forecast, air_now)
 
 runs_by_day = runs.groupby(runs["start_time"].dt.date)
-data_key = user_id + ":" + (str(last_sync) if from_api else user["stats"]["as_of"] if source == STATS
-                            else f"{source}:{Path(source).stat().st_mtime}")
+data_key = user_id + ":" + (str(last_sync) if from_api else
+                            user["stats"]["as_of"] + hashlib.md5(json.dumps(logged).encode()).hexdigest()
+                            if source == STATS else f"{source}:{Path(source).stat().st_mtime}")
 page = st.query_params.get("page", "today")
+
+
+LOG_FIELDS = ("day", "start", "km", "time", "avg", "max", "race", "title")
+
+
+def log_run_form(key, day=None, planned=None):
+    """Log a run by hand (runners without Garmin): what the evaluation needs, nothing more."""
+    first = history_end(user["stats"]).date()       # the stats describe the days before
+    day = min(max(day or today, first), today)
+    km = planned.distance_km if planned is not None and planned.distance_km else 5.0
+    k = {f: f"log-{key}-{f}" for f in LOG_FIELDS}
+    with st.form(f"log-{key}"):
+        c1, c2 = st.columns(2)
+        run_day = c1.date_input(t("log date"), value=day, min_value=first, max_value=today, key=k["day"])
+        start = c2.time_input(t("log start"), value=time(RUN_HOURS[0], 0), key=k["start"])
+        c3, c4 = st.columns(2)
+        distance = c3.number_input(t("log km"), min_value=0.0, max_value=100.0, value=float(km), step=0.1,
+                                   format="%.2f", key=k["km"])
+        duration = c4.text_input(t("log time"), placeholder="0:40:00", help=t("why log time"), key=k["time"])
+        c5, c6 = st.columns(2)
+        avg_hr = c5.number_input(t("log avg hr"), min_value=0, max_value=230, value=0, help=t("why log avg hr"),
+                                 key=k["avg"])
+        max_hr = c6.number_input(t("log max hr"), min_value=0, max_value=250, value=0, help=t("why log max hr"),
+                                 key=k["max"])
+        race = st.checkbox(t("log race"), help=t("why log race"), key=k["race"])
+        title = st.text_input(t("log title"), placeholder=t("log title hint"), key=k["title"])
+        if not st.form_submit_button(t("log save"), type="primary"):
+            return
+    try:
+        seconds = parse_time(duration) if duration.strip() else None
+    except ValueError:
+        seconds = None
+    entry = {"start": f"{run_day.isoformat()}T{start:%H:%M}:00", "distance_km": round(distance, 2),
+             "duration_s": seconds, "avg_hr": int(avg_hr) or None, "max_hr": int(max_hr) or None,
+             "race": race, "title": title.strip() or None}
+    found = manual_runs.problems(entry, first, today, MAX_HR)
+    if found:
+        note("<br>".join(t("log " + f, first=t.date(first), max=MAX_HR) for f in found), accent=True)
+        return
+    manual_runs.add(DATA_DIR, entry)
+    for name in k.values():                  # an empty form for the next run
+        state.pop(name, None)
+    st.toast(t("log saved", km=f"{distance:g}", day=t.date(run_day)))
+    st.rerun()
+
+
+def logged_list():
+    """The runs logged by hand, newest first, each with a delete button."""
+    if not logged:
+        st.caption(t("log none"))
+        return
+    for entry in reversed(logged):
+        run = manual_runs.to_runs([entry]).iloc[0]
+        line = (f"**{t.date(run['start_time'])} {run['start_time']:%H:%M}** · {run['distance_km']:g} km · "
+                f"{format_duration(run['duration_s'])} · {format_pace(run['avg_pace_s_per_km'])}/km · "
+                f"{run['avg_hr']:.0f} bpm" + (f" · {t('log race tag')}" if entry.get("race") else "")
+                + (f" · {escape(entry['title'])}" if entry.get("title") else ""))
+        c1, c2 = st.columns([5, 1], vertical_alignment="center")
+        c1.markdown(line)
+        if c2.button(t("log delete"), key=f"del-{entry['id']}", use_container_width=True):
+            manual_runs.remove(DATA_DIR, entry["id"])
+            st.rerun()
 
 
 def plan_stage(runs, start, n_weeks, goal, plans_dir):
@@ -1268,6 +1352,9 @@ def run_analysis(run, day):
 
 def split_table(run):
     """Per-km distance, time, pace and heart rate from the run's activity file, with a pace bar."""
+    if pd.notna(run.get("manual_id")):
+        st.caption(t("no splits logged"))
+        return
     fit_file = run.get("fit_file")
     path = DATA_DIR / ACTIVITY_DIR / str(fit_file)
     if pd.isna(fit_file) or not path.exists():
@@ -1404,8 +1491,7 @@ def programs_page():
                                            values["target_time"], values["race_date"], values["start_date"],
                                            values["weeks"], values["milestone"])
             programs.add(DATA_DIR, store, program, make_active)
-            st.query_params.update({"page": "programs", "program": program["id"]})
-            st.rerun()
+            goto(user=user_id, page="programs", program=program["id"])
 
 
 def program_detail(program):
@@ -1440,8 +1526,14 @@ def program_detail(program):
         if ran is not None:
             for _, run in ran.iterrows():
                 run_analysis(run, day)
+                if pd.notna(run.get("manual_id")) and st.button(t("log delete this"), key=f"del-day-{run['manual_id']}"):
+                    manual_runs.remove(DATA_DIR, run["manual_id"])
+                    st.rerun()
             st.markdown(f"**{t('planned menu')}**")
         render_day(day, race_name(program, day.day))
+        if source == STATS and selected <= today:
+            with st.expander(t("log this day" if ran is None else "log another"), expanded=ran is None):
+                log_run_form(f"day-{selected}", selected, day if day.kind not in ("rest", "race") else None)
 
     st.markdown(f"### {t('all weeks')}")
     weeks_table(weeks)
@@ -1462,9 +1554,7 @@ def program_detail(program):
         sure = st.checkbox(t("delete sure"), key=f"delete-{program['id']}")
         if st.button(t("delete now"), disabled=not sure):
             programs.remove(DATA_DIR, store, program["id"])
-            st.query_params.clear()
-            st.query_params.update({"user": user_id, "page": "programs", "lang": lang})
-            st.rerun()
+            goto(user=user_id, page="programs")
 
 
 # ---- programs: what you train for (data/programs.json); the active one plans the home page ----
@@ -1567,6 +1657,12 @@ with today_slot:
     with st.expander(t("why")):
         st.markdown("\n".join(f"- {line}" for line in week_reason(plan)))
         technical(plan)
+    if source == STATS:
+        with st.expander(t("log run")):
+            st.caption(t("log intro"))
+            log_run_form("today", today, today_day if is_run else None)
+        with st.expander(t("logged runs", n=len(logged))):
+            logged_list()
 
 # ---- 2. this week ----
 with week_slot:

@@ -23,6 +23,7 @@ The app shows the formula and the data behind every number it gives.
 | Feature | What it tells you |
 |---|---|
 | **Runners** | A welcome page (RUN!! → Start) to pick who is running or add a runner. The first runner, tee, uses the Garmin data in `data/`; a new runner enters a name and a few stats (sex, age, max HR if known, the last 4 weeks' runs, km and longest run, an easy run's pace and heart rate, a recent race, injury), each with why it is asked. Those stats become the runs they describe, so every analysis and the planner work unchanged. No passwords: a local app |
+| **Log runs by hand** | Runners without Garmin log each run on the home page or on a day of their program's calendar: date, start time, distance, moving time and average heart rate (max HR optional, and whether it was a race). That is what the evaluation needs: done or missed, easy or hard, efficiency, check-ins and passing a milestone test. Once runs are logged, a planned run that was not logged counts as not run, as with a Garmin sync |
 | **Race post-mortem** | Compares the weeks before your last two races: volume, runs per week, longest run, average HR, easy share, efficiency, heat |
 | **Aerobic fitness trend** | Estimated pace at a fixed heart rate (e.g. pace @ 160 bpm) per run and per month |
 | **Easy-run honesty check** | Weekly easy vs hard time against an 80/20 target, plus runs you *called* easy whose heart rate says otherwise |
@@ -268,6 +269,7 @@ src/
     forecast_openmeteo.py weather + air-quality forecast, cached
     iqair.py              optional measured AQI (needs IQAIR_API_KEY in .env)
     manual_stats.py       a new runner's entered stats → the runs they describe
+    manual_runs.py        runs logged by hand (manual_runs.json in the runner's folder)
   analysis/
     races.py              which runs are races (Garmin Event Type or RACES)
     run_review.py         one run against its planned menu: distance, intensity, pace, efficiency
@@ -320,5 +322,6 @@ CSV and Garmin API loaders are interchangeable, and a Strava loader could be add
 - [x] Phase 4: automatic import via the Garmin Personal API (pull-only)
 - [x] Milestone programs, weekly check-ins, run analysis and splits
 - [x] Several runners: welcome page, new runners from entered stats
+- [x] Log runs by hand (runners without Garmin)
 - [ ] TCX / FIT folder loader (Huawei and other watches)
 - [ ] Strava bulk-export loader
