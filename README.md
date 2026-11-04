@@ -22,7 +22,7 @@ The app shows the formula and the data behind every number it gives.
 
 | Feature | What it tells you |
 |---|---|
-| **Runners** | A welcome page (RUN!! → Start) to pick who is running or add a runner. The first runner, tee, uses the Garmin data in `data/`; a new runner enters a name and a few stats (sex, age, max HR if known, the last 4 weeks' runs, km and longest run, an easy run's pace and heart rate, a recent race, injury), each with why it is asked. Those stats become the runs they describe, so every analysis and the planner work unchanged. No passwords: a local app |
+| **Runners** | A welcome page (RUN!! → Start) to pick who is running or add a runner. The first runner, tee, uses the Garmin data in `data/`; a new runner enters a name and a few stats (sex, age, max HR if known, the last 4 weeks' runs, km and longest run, an easy run's pace and heart rate, a recent race, injury), each with why it is asked. Those stats become the runs they describe, so every analysis and the planner work unchanged. A password per runner (needed online) |
 | **Log runs by hand** | Runners without Garmin log each run on the home page or on a day of their program's calendar: date, start time, distance, moving time and average heart rate (max HR optional, and whether it was a race). That is what the evaluation needs: done or missed, easy or hard, efficiency, check-ins and passing a milestone test. Once runs are logged, a planned run that was not logged counts as not run, as with a Garmin sync |
 | **Race post-mortem** | Compares the weeks before your last two races: volume, runs per week, longest run, average HR, easy share, efficiency, heat |
 | **Aerobic fitness trend** | Estimated pace at a fixed heart rate (e.g. pace @ 160 bpm) per run and per month |
@@ -113,10 +113,49 @@ per-second heart-rate analysis (Garmin Connect web → an activity → gear icon
 ### 3. Open the dashboard
 
 ```bash
-streamlit run app/dashboard.py
+streamlit run app/main.py
 ```
 
-The dashboard opens at http://localhost:8501.
+The dashboard opens at http://localhost:8501. `app/main.py` runs `app/dashboard.py`
+one visitor at a time and, online, keeps `data/` in Supabase (see below).
+
+### Put it online (Streamlit Community Cloud + Supabase)
+
+Streamlit Cloud runs the app from this GitHub repository, but its disk is wiped on
+every restart and `data/` is not in git. So `data/` lives in a private Supabase
+Storage bucket: pulled when the server starts, and every page run uploads what it
+changed (`src/cloud.py`). Online, every runner needs a password; only a salted
+scrypt hash is stored, and after logging in the address carries a signed login
+token for 30 days.
+
+1. **Supabase**: create a free project. From Project Settings → API keys, copy the
+   project URL and the **secret** key into `.env` (never into git or chat):
+   ```
+   SUPABASE_URL=https://<project>.supabase.co
+   SUPABASE_SECRET_KEY=...
+   ```
+2. **Passwords**: give every runner one (at least 8 characters):
+   ```bash
+   python -m src.users password tee
+   ```
+3. **Upload** your `data/` (it creates the private `run-data` bucket). It refuses while a runner has no password:
+   ```bash
+   python -m src.cloud upload
+   ```
+4. **Streamlit Cloud** (share.streamlit.io): New app → this repository, branch `main`,
+   main file `app/main.py`; Advanced settings → Python 3.12, and Secrets:
+   ```toml
+   DATA_STORE = "supabase"
+   SUPABASE_URL = "https://<project>.supabase.co"
+   SUPABASE_SECRET_KEY = "..."
+   GARMIN_API_KEY = "..."
+   GARMIN_API_KEY_EXPIRES = "2027-04-27"
+   IQAIR_API_KEY = "..."            # optional
+   ```
+
+From then on the online copy is the real one. `python -m src.cloud download` copies it
+back into `data/` (a backup, or to work on your computer). Do not run a local app with
+`DATA_STORE=supabase` at the same time as the online one: each uploads its own changes.
 
 ### Or use the command line
 
@@ -258,8 +297,10 @@ src/
   evidence.py             the papers behind each rule, with DOIs
   units.py                seconds ↔ "m:ss" / "h:mm:ss"
   env.py                  API keys from the environment or .env
+  cloud.py                data/ in a private Supabase Storage bucket (online), upload / download
   programs.py             saved training programs (data/programs.json), one active, milestone stages
-  users.py                runners (data/users.json): tee's data/ or a new runner's data/users/<id>/
+  users.py                runners (data/users.json): tee's data/ or a new runner's data/users/<id>/,
+                          passwords (scrypt hashes) and signed login tokens
   athlete.py              the current runner's settings (max HR, easy limit, injury, races)
   loaders/
     csv_garmin.py         Garmin CSV → clean table (numbers, seconds, km)
@@ -287,6 +328,7 @@ src/
   export/
     fit_workout.py        workouts → Garmin .fit files
 app/
+  main.py                 start here: one visitor at a time, Supabase sync when online
   dashboard.py            Streamlit dashboard (draws only; all numbers come from src/)
   i18n.py                 every sentence of the dashboard, in English and Indonesian
   assets/refresh.png      refresh icon
@@ -308,6 +350,8 @@ CSV and Garmin API loaders are interchangeable, and a Strava loader could be add
 - The default max HR comes from the highest value seen in the data. Real HR zones from Garmin Connect would be more accurate.
 - The `.fit` workouts are checked with Garmin's official FIT SDK decoder, but watch support for `GARMIN/NewFiles` varies by model.
 - Air quality is a model estimate unless an IQAir key is set.
+- Online, one page run is served at a time: fine for a few runners, slow for many. Anyone with the link can create a runner, and there is no limit on password attempts.
+- A login token in the address works for 30 days for whoever has that address: do not share a logged-in link.
 - Dark mode uses Streamlit's built-in dark theme (Streamlit 1.37 supports one custom theme). Choose **Custom Theme** in Settings for the app's own palette.
 
 ---
@@ -322,6 +366,7 @@ CSV and Garmin API loaders are interchangeable, and a Strava loader could be add
 - [x] Phase 4: automatic import via the Garmin Personal API (pull-only)
 - [x] Milestone programs, weekly check-ins, run analysis and splits
 - [x] Several runners: welcome page, new runners from entered stats
+- [x] Online: Streamlit Community Cloud, data in Supabase, passwords
 - [x] Log runs by hand (runners without Garmin)
 - [ ] TCX / FIT folder loader (Huawei and other watches)
 - [ ] Strava bulk-export loader

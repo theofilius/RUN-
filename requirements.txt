@@ -1,6 +1,6 @@
-pandas>=2.0
-numpy
-streamlit>=1.37
-plotly>=5.19
+pandas==2.2.2
+numpy==1.26.4
+streamlit==1.37.1
+plotly==5.24.1
 fit-tool==0.9.16
 pytest  # tests only

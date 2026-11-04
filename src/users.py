@@ -5,15 +5,33 @@ exports, programs): their folder stays data/ itself and their settings are confi
 A new runner gets data/users/<id>/ and starts from the stats they enter (STAT_FIELDS,
 turned into a run history by loaders/manual_stats.py). No password for now: this is a
 local app on your own computer.
+
+Online (src/cloud.py) every runner needs a password. Only a salted scrypt hash is
+kept. After logging in, the address carries a signed token (login_token) for
+TOKEN_DAYS, because every link in the app loads a new page.
+
+  python -m src.users password <id>    set or change a runner's password
 """
 
+import hashlib
+import hmac
 import json
 import re
+import secrets
+import sys
+import time
 from datetime import date
+from getpass import getpass
 from pathlib import Path
 
 from src.athlete import Athlete
 from src.config import RUNS_PER_WEEK
+from src.env import env_value
+
+SECRET_FILE = ".app_secret"     # signs login tokens; APP_SECRET in the environment wins
+TOKEN_DAYS = 30
+MIN_PASSWORD = 8
+SCRYPT = {"n": 2 ** 14, "r": 8, "p": 1}
 
 USERS_FILE = "users.json"
 USERS_DIR = "users"
@@ -84,6 +102,59 @@ def max_hr(stats):
     return round(208 - 0.7 * stats["age"]), "age"
 
 
+def has_password(user):
+    return bool(user.get("password"))
+
+
+def hash_password(password, salt=None):
+    salt = salt or secrets.token_hex(16)
+    digest = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt), **SCRYPT).hex()
+    return {"salt": salt, "hash": digest}
+
+
+def check_password(user, password):
+    if not has_password(user):
+        return False
+    expected = hash_password(password, user["password"]["salt"])["hash"]
+    return hmac.compare_digest(expected, user["password"]["hash"])
+
+
+def set_password(data_root, store, user_id, password):
+    find(store, user_id)["password"] = hash_password(password)
+    save(data_root, store)
+
+
+def app_secret(data_root, root=None):
+    """The key that signs login tokens: APP_SECRET, else one made once and kept in data/."""
+    if value := env_value("APP_SECRET", root or Path(data_root).parent):
+        return value
+    path = Path(data_root) / SECRET_FILE
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(secrets.token_hex(32))
+    return path.read_text().strip()
+
+
+def _signature(user, expires, secret):
+    # the password's salt is signed too, so a new password ends every old login
+    message = f"{user['id']}|{expires}|{user['password']['salt']}".encode()
+    return hmac.new(secret.encode(), message, hashlib.sha256).hexdigest()[:32]
+
+
+def login_token(user, secret, now=None):
+    expires = int((now or time.time()) + TOKEN_DAYS * 86400)
+    return f"{expires}.{_signature(user, expires, secret)}"
+
+
+def valid_token(user, token, secret, now=None):
+    if not (has_password(user) and token and "." in token):
+        return False
+    expires, signature = token.split(".", 1)
+    if not expires.isdigit() or int(expires) < (now or time.time()):
+        return False
+    return hmac.compare_digest(signature, _signature(user, int(expires), secret))
+
+
 def talk_test_hr(user):
     """The easy limit from the runner's talk test, or None (see set_talk_test)."""
     return (user.get("talk_test") or {}).get("hr")
@@ -110,3 +181,23 @@ def athlete(user):
                    injured_last_12_months=bool(stats.get("injured")),
                    start_runs_per_week=max(2, min(RUNS_PER_WEEK, int(stats["runs_per_week"]))),
                    races={}, talk_test_hr=talk_test_hr(user))
+
+
+def main(argv):
+    root = Path(__file__).resolve().parent.parent / "data"
+    if len(argv) != 3 or argv[1] != "password":
+        sys.exit("python -m src.users password <id>")
+    store = load(root)
+    if not find(store, argv[2]):
+        sys.exit(f"No runner {argv[2]!r}. Runners: {', '.join(u['id'] for u in store['users'])}")
+    password = getpass(f"New password for {argv[2]}: ")
+    if len(password) < MIN_PASSWORD:
+        sys.exit(f"Use at least {MIN_PASSWORD} characters.")
+    if getpass("Again: ") != password:
+        sys.exit("The two passwords differ.")
+    set_password(root, store, argv[2], password)
+    print(f"Password set for {argv[2]}.")
+
+
+if __name__ == "__main__":
+    main(sys.argv)

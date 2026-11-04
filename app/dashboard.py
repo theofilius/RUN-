@@ -48,7 +48,7 @@ from src.athlete import ATHLETE, use
 from src.config import (
     COMPARE_WEEKS, GOAL_RACE, HOME_CITY, PLAN_START, REFERENCE_HR, RUN_HOURS, RUNS_PER_WEEK, TARGET_EASY_PCT,
 )
-from src import programs, users
+from src import cloud, programs, users
 from src.evidence import SOURCES
 from src.goal_settings import DISTANCES, distance_name, load_goal
 from src.loaders.forecast_openmeteo import fetched_at, load_forecast
@@ -690,8 +690,11 @@ def sidebar_weather():
 # ---------- welcome and runners ----------
 
 def link(text, **params):
-    """A link within the app that keeps the runner and the language (user=None leaves the runner)."""
-    query = "&".join(f"{k}={v}" for k, v in {"user": user_id, **params, "lang": lang}.items() if v is not None)
+    """A link within the app that keeps the runner, their login and the language (user=None leaves the runner)."""
+    params = {"user": user_id, **params}
+    if params["user"] and params["user"] == user_id:
+        params["auth"] = AUTH            # every link loads a new page: the login travels in the address
+    query = "&".join(f"{k}={v}" for k, v in {**params, "lang": lang}.items() if v is not None)
     return f"<a href='?{query}' target='_self'>{text}</a>"
 
 
@@ -699,7 +702,7 @@ def goto(**params):
     """Load the app at ?params: a real page load, so the browser's address shows them.
 
     (In Streamlit 1.37, st.query_params changed just before st.rerun() never reach the
-    address bar, so a reload would forget them - here: a new runner or program.)
+    address bar, so a reload would forget them - here: the login, or a new runner.)
     """
     query = urlencode({k: v for k, v in {**params, "lang": lang}.items() if v is not None})
     components.html(f"""<script>
@@ -708,6 +711,22 @@ def goto(**params):
     window.parent.document.head.append(s);
     </script>""", height=0)
     st.stop()
+
+
+def login_page(runner):
+    """The runner's password; a correct one puts a signed login token in the address."""
+    html("<div class='splash small'><div class='mark'>RUN<span>!!</span></div></div>")
+    st.subheader(t("login title", name=runner["name"]))
+    if not users.has_password(runner):
+        note(t("no password yet", id=runner["id"]), accent=True)
+    else:
+        with st.form("login"):
+            password = st.text_input(t("password"), type="password")
+            if st.form_submit_button(t("log in"), type="primary"):
+                if users.check_password(runner, password):
+                    goto(**{**st.query_params.to_dict(), "auth": users.login_token(runner, SECRET)})
+                note(t("wrong password"), accent=True)
+    html(link(t("other runner"), user=None, page="users"))
 
 
 def welcome_page():
@@ -766,6 +785,11 @@ def new_user_form():
                                  key="nu-race-day")
         race = {"distance_km": DISTANCES[distance], "time": race_time, "date": race_day.isoformat()}
     injured = st.checkbox(t("injured"), key="nu-injured", help=t("why injured"))
+    st.markdown(f"**{t('password')}**")
+    p1, p2 = st.columns(2)
+    password = p1.text_input(t("password new"), type="password", key="nu-pass",
+                             help=t("why password") if CLOUD else t("why password local"))
+    again = p2.text_input(t("password again"), type="password", key="nu-pass2")
     if not st.button(t("create user"), type="primary"):
         return
 
@@ -788,12 +812,20 @@ def new_user_form():
         errors.append(t("bad longest"))
     if easy_hr >= users.max_hr(stats)[0]:
         errors.append(t("bad easy hr", max=users.max_hr(stats)[0]))
+    if (password or CLOUD) and len(password) < users.MIN_PASSWORD:
+        errors.append(t("bad password", n=users.MIN_PASSWORD))
+    elif password != again:
+        errors.append(t("passwords differ"))
     if errors:
         note("<br>".join(errors), accent=True)
         return
     runner = users.new_user(user_store, name, stats, today)
     users.add(DATA_ROOT, user_store, runner)
-    goto(user=runner["id"], page="today")
+    token = None
+    if password:
+        users.set_password(DATA_ROOT, user_store, runner["id"], password)
+        token = users.login_token(users.find(user_store, runner["id"]), SECRET)
+    goto(user=runner["id"], page="today", auth=token)
 
 
 # ---------- page ----------
@@ -806,6 +838,9 @@ lang = st.query_params.get("lang", "id")
 lang = lang if lang in LANGUAGES else "id"
 t = Text(lang)
 state = st.session_state
+AUTH = st.query_params.get("auth")
+CLOUD = cloud.active()                        # online: data in Supabase, a password for everyone
+SECRET = users.app_secret(DATA_ROOT)
 page_css()
 language_setting(lang)
 
@@ -820,6 +855,9 @@ if user is None:
         users_page()
     else:
         welcome_page()
+    st.stop()
+if (CLOUD or users.has_password(user)) and not users.valid_token(user, AUTH, SECRET):
+    login_page(user)
     st.stop()
 use(users.athlete(user))
 MAX_HR, EASY_HR_MAX = ATHLETE.max_hr, ATHLETE.easy_hr_max
@@ -1257,7 +1295,8 @@ def day_cell(program, days, day, selected):
         classes.append("sel")
     classes.append("mid" if day.weekday() in (2, 3) else "end" if day.weekday() >= 4 else "start")
     km = f"{plan_day.distance_km:g} km" if is_run else "&nbsp;"
-    href = f"?user={user_id}&page=programs&program={program['id']}&day={day.isoformat()}&lang={lang}"
+    href = f"?user={user_id}&page=programs&program={program['id']}&day={day.isoformat()}&lang={lang}" \
+        + (f"&auth={AUTH}" if AUTH else "")
     return (f"<div class='{' '.join(classes)}' tabindex='0'><a class='go' href='{href}' target='_self'></a>"
             f"<div class='n'>{day.day}</div>"
             f"<div class='k'>{kind_name(plan_day.kind, short=True)}</div><div class='d'>{km}</div>"
@@ -1491,7 +1530,7 @@ def programs_page():
                                            values["target_time"], values["race_date"], values["start_date"],
                                            values["weeks"], values["milestone"])
             programs.add(DATA_DIR, store, program, make_active)
-            goto(user=user_id, page="programs", program=program["id"])
+            goto(user=user_id, page="programs", program=program["id"], auth=AUTH)
 
 
 def program_detail(program):
@@ -1554,7 +1593,7 @@ def program_detail(program):
         sure = st.checkbox(t("delete sure"), key=f"delete-{program['id']}")
         if st.button(t("delete now"), disabled=not sure):
             programs.remove(DATA_DIR, store, program["id"])
-            goto(user=user_id, page="programs")
+            goto(user=user_id, page="programs", auth=AUTH)
 
 
 # ---- programs: what you train for (data/programs.json); the active one plans the home page ----
