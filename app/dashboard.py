@@ -30,9 +30,11 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import folium
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+from streamlit_folium import st_folium
 import streamlit.components.v1 as components
 
 from i18n import LANGUAGES, Text
@@ -49,7 +51,7 @@ from src.athlete import ATHLETE, use
 from src.config import (
     COMPARE_WEEKS, GOAL_RACE, HOME_CITY, PLAN_START, REFERENCE_HR, RUN_HOURS, RUNS_PER_WEEK, TARGET_EASY_PCT,
 )
-from src import programs, users
+from src import programs, route_generator, users
 from src.evidence import SOURCES
 from src.goal_settings import DISTANCES, distance_name, load_goal
 from src.loaders.forecast_openmeteo import fetched_at, load_forecast
@@ -305,6 +307,7 @@ def page_css():
                      font-variant-numeric:tabular-nums; }}
     .splits th {{ text-align:left; font-weight:600; opacity:0.7; padding:4px 8px 4px 0;
                   border:0 !important; background:transparent !important; }}
+    .cues td.arrow {{ font-size:1.4rem; width:2.2rem; text-align:center; }}
     .splits td {{ padding:5px 8px 5px 0; border:0 !important; border-top:1px solid rgba(128,128,128,0.3) !important;
                   background:transparent !important; }}
     .splits td:nth-child(4) {{ width:38%; }}
@@ -1632,6 +1635,139 @@ def program_detail(program):
             goto(user=user_id, page="programs")
 
 
+# ---- routes: loops of a chosen distance from a point you pick on the map ----
+ROUTE_COLORS = ("#0072B2", "#E69F00", "#CC79A7")    # Okabe-Ito blue, orange, reddish purple: colour-blind safe
+JAKARTA = (-6.1754, 106.8272)
+ROUTE_TURN = 40     # own rule: "other routes" turns every direction by this many degrees
+
+
+@st.cache_data(show_spinner=False, ttl=24 * 3600)
+def make_routes(lat, lon, km, first_bearing):
+    """route_generator.generate, kept for a day: the same start and distance give the same loops."""
+    return route_generator.generate((lat, lon), km, first_bearing=first_bearing)
+
+
+def usual_start():
+    """Where the runner's newest GPS run started (their usual spot), else central Jakarta."""
+    routes_dir = DATA_DIR / ACTIVITY_DIR / "routes"
+    for path in sorted(routes_dir.glob("*.csv"), reverse=True) if routes_dir.is_dir() else []:
+        first = pd.read_csv(path, nrows=1)
+        if len(first):
+            return float(first["lat"].iloc[0]), float(first["lon"].iloc[0])
+    return JAKARTA
+
+
+ARROWS = {"left": "⬅", "right": "➡", "slight left": "⬉", "slight right": "⬈", "uturn": "↩", "finish": "🏁"}
+
+
+def cue(turn, with_km=True):
+    """One turn in words: "km 0.54 · Left onto Jalan Angkur"."""
+    text = t("dir " + turn["dir"])
+    if turn["street"] and turn["dir"] != "finish":
+        text += " " + t("dir onto", street=escape(turn["street"]))
+    return f"km {turn['km']:.2f} · {text}" if with_km else text
+
+
+def routes_page():
+    st.subheader(t("routes title"))
+    st.caption(t("routes intro"))
+    if "route_start" not in state:
+        state["route_start"] = usual_start()
+    try:
+        default_km = float(st.query_params.get("km", 5))
+    except ValueError:
+        default_km = 5.0
+    start = state["route_start"]
+
+    # Callbacks run before the page is drawn again, so "Other routes" is enabled at once.
+    def make():
+        state["route_request"] = (round(start[0], 6), round(start[1], 6), float(state["route-km"]), 0)
+
+    def turn():
+        lat, lon, k, bearing = state["route_request"]
+        state["route_request"] = (lat, lon, k, (bearing + ROUTE_TURN) % 360)
+
+    c1, c2, c3 = st.columns([2, 1, 1])
+    c1.number_input(t("routes km"), min_value=1.0, max_value=42.2, value=default_km, step=0.5, format="%.1f",
+                         key="route-km")
+    c2.write("")
+    c3.write("")
+    c2.button(t("routes make"), type="primary", use_container_width=True, on_click=make)
+    c3.button(t("routes other"), use_container_width=True, disabled="route_request" not in state, on_click=turn)
+
+    loops = []
+    if "route_request" in state:
+        with st.spinner(t("routes wait")):
+            loops = make_routes(*state["route_request"])
+        if not loops:
+            st.warning(t("routes failed"))
+    # One radio per set of loops, so new loops start again at route 1; the map reads its choice.
+    pick_key = f"route-pick-{state.get('route_request')}"
+    pick = min(state.get(pick_key, 0), max(len(loops) - 1, 0))
+
+    view = folium.Map(location=start, zoom_start=15, control_scale=True)
+    for i, item in reversed(list(enumerate(loops))):      # the chosen loop is drawn last, on top
+        chosen = i == pick
+        folium.PolyLine(item["path"], color=ROUTE_COLORS[i % len(ROUTE_COLORS)], weight=7 if chosen else 4,
+                        opacity=1 if chosen else 0.55,
+                        tooltip=t("routes option", n=i + 1, km=f"{item['km']:.2f}")).add_to(view)
+        middle = item["path"][len(item["path"]) // 2]
+        folium.Marker(middle, icon=folium.DivIcon(html=(
+            f"<div style='background:{ROUTE_COLORS[i % len(ROUTE_COLORS)]};color:#fff;font-weight:700;"
+            f"border:2px solid #fff;border-radius:50%;width:24px;height:24px;line-height:20px;"
+            f"text-align:center;font-size:13px'>{i + 1}</div>"), icon_size=(24, 24), icon_anchor=(12, 12))).add_to(view)
+    if loops:   # the chosen loop's turns, to check them before running
+        for turn in loops[pick]["turns"][:-1]:
+            folium.CircleMarker((turn["lat"], turn["lon"]), radius=4, color=INK, weight=1, fill=True,
+                                fill_color="#fff", fill_opacity=1, tooltip=cue(turn)).add_to(view)
+    folium.CircleMarker(start, radius=9, color="#fff", weight=3, fill=True, fill_color="#1a9850", fill_opacity=1,
+                        tooltip=t("map start")).add_to(view)
+    if loops:
+        view.fit_bounds([p for item in loops for p in item["path"]])
+    clicked = st_folium(view, height=460, use_container_width=True, returned_objects=["last_clicked"],
+                        key="route-map")
+    st.caption(t("routes click"))
+    point = (clicked or {}).get("last_clicked")
+    if point:
+        new_start = (round(point["lat"], 6), round(point["lng"], 6))
+        if new_start != tuple(round(x, 6) for x in start):
+            state["route_start"] = new_start
+            state.pop("route_request", None)      # loops from the old start no longer apply
+            st.rerun()
+
+    if not loops:
+        return
+    km = state["route_request"][2]          # the distance these loops were made for
+    labels = [t("routes option", n=i + 1, km=f"{item['km']:.2f}") for i, item in enumerate(loops)]
+    st.radio(t("routes pick"), range(len(loops)), horizontal=True, format_func=lambda i: labels[i], key=pick_key)
+    rows = "".join(
+        f"<tr><td><span style='display:inline-block;width:12px;height:12px;border-radius:50%;"
+        f"background:{ROUTE_COLORS[i % len(ROUTE_COLORS)]};margin-right:8px'></span>"
+        f"{'<b>' if i == pick else ''}{t('routes option short', n=i + 1)}{'</b>' if i == pick else ''}</td>"
+        f"<td>{item['km']:.2f} km</td><td>{t('routes off', pct=f'{100 * (item['km'] - km) / km:+.0f}')}</td>"
+        f"<td>{t('routes repeat', pct=f'{100 * item['repeated']:.0f}')}</td>"
+        f"<td>{t('routes turns', n=len(item['turns']) - 1)}</td></tr>"
+        for i, item in enumerate(loops))
+    html(f"<div class='splits'><table>{rows}</table>"
+         f"<div class='hint'>{t('routes note')}</div></div>")
+    chosen = loops[pick]
+    # 1. On the phone: Google Maps draws the loop and talks you through every turn.
+    st.link_button(t("routes gmaps"), route_generator.google_maps_url(start, chosen["via"]), type="primary",
+                   use_container_width=True)
+    st.caption(t("routes gmaps how"))
+    # 2. On a Garmin watch: the loop as a course.
+    name = t("routes gpx name", km=f"{chosen['km']:.1f}")
+    st.download_button(t("routes gpx"), route_generator.to_gpx(chosen["path"], name),
+                       file_name=f"route-{chosen['km']:.1f}km.gpx", mime="application/gpx+xml",
+                       use_container_width=True)
+    st.caption(t("routes gpx how"))
+    # 3. The turns, to look over before you go.
+    with st.expander(t("routes cues", n=pick + 1, turns=len(chosen["turns"]) - 1)):
+        cues = "".join(f"<tr><td class='arrow'>{ARROWS[turn['dir']]}</td><td>{cue(turn, with_km=False)}</td>"
+                       f"<td>{turn['km']:.2f} km</td></tr>" for turn in chosen["turns"])
+        html(f"<div class='splits cues'><table>{cues}</table></div>")
+
+
 # ---- programs: what you train for (data/programs.json); the active one plans the home page ----
 store = (programs.migrate(DATA_DIR, load_goal(), PLAN_START) if user["source"] != "stats"   # tee's old goal
          else programs.load(DATA_DIR))
@@ -1641,11 +1777,14 @@ for p in store["programs"]:   # a race that passes a milestone moves its program
 program = programs.active(store)
 html("<div class='nav'>" + "".join(
     link(t("nav " + key), page=key).replace("<a ", f"<a class='{'on' if page == key else ''}' ")
-    for key in ("today", "programs"))
+    for key in ("today", "programs", "routes"))
     + f"<span class='who'>{escape(user['name'])} · {link(t('switch user'), user=None, page='users')}</span></div>")
 sidebar_weather()
 if page == "programs":
     programs_page()
+    st.stop()
+if page == "routes":
+    routes_page()
     st.stop()
 
 # Home: the active program. Without one (or once it has ended) a plan with no target, from today.
@@ -1715,6 +1854,7 @@ with today_slot:
         parts += [f"<div class='kind'>{kind_name(today_day.kind)}</div>", f"<div class='stats'>{stats}</div>",
                   profile(today_day), f"<div class='hint muted'>{today_hint(today_day)}</div>"]
         parts += [f"<div class='hint'>{line}</div>" for line in extra_lines(today_day)]
+        parts.append(f"<div class='hint'>{link(t('routes for today', km=f'{today_day.distance_km:g}') + ' →', page='routes', km=f'{today_day.distance_km:g}').replace('<a ', '<a class=more ')}</div>")
     below = []
     if done is not None:
         below.append(f"<div><b>{t('done today', km=f'{done['distance_km'].sum():.1f}', hr=f'{done['avg_hr'].mean():.0f}')}</b></div>")

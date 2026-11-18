@@ -407,6 +407,52 @@ TEXT = {
     # ---- programs ----
     "nav today": ("Today", "Hari ini"),
     "nav programs": ("Programs", "Program"),
+    "nav routes": ("Routes", "Rute"),
+    "routes title": ("Find a route", "Cari rute"),
+    "routes intro": ("Tap the map where you want to start, choose the distance, and get loops on real streets "
+                     "(OpenStreetMap). Pick one and download it for your watch.",
+                     "Ketuk peta di titik kamu mau mulai, pilih jaraknya, lalu dapatkan rute memutar di jalan "
+                     "sungguhan (OpenStreetMap). Pilih satu dan unduh untuk jam kamu."),
+    "routes km": ("Distance (km)", "Jarak (km)"),
+    "routes make": ("Make routes", "Buat rute"),
+    "routes other": ("Other routes", "Rute lain"),
+    "routes wait": ("Finding loops on the streets (about 10 seconds)...",
+                    "Mencari rute di jalan (sekitar 10 detik)..."),
+    "routes failed": ("No route found from this point. Try a spot on or near a street, or a shorter distance.",
+                      "Tidak ketemu rute dari titik ini. Coba titik di atau dekat jalan, atau jarak yang lebih pendek."),
+    "routes click": ("Tap the map to move the start (green dot).", "Ketuk peta untuk memindahkan titik start (titik hijau)."),
+    "routes option": ("Route {n} · {km} km", "Rute {n} · {km} km"),
+    "routes option short": ("Route {n}", "Rute {n}"),
+    "routes pick": ("Choose a route", "Pilih rute"),
+    "routes off": ("{pct}% vs target", "{pct}% dari target"),
+    "routes repeat": ("{pct}% on repeated streets", "{pct}% lewat jalan yang sama"),
+    "routes note": ("Repeated streets: the share run twice (out and back). Lower is a cleaner loop. "
+                    "Check the route yourself: the map does not know about traffic, flooding or safety at night.",
+                    "Jalan yang sama: bagian yang dilewati dua kali (bolak-balik). Makin kecil makin rapi rutenya. "
+                    "Cek sendiri rutenya: peta tidak tahu soal macet, banjir, atau keamanan malam hari."),
+    "routes gpx": ("Download GPX", "Unduh GPX"),
+    "routes gpx name": ("{km} km loop", "Rute {km} km"),
+    "routes gpx how": ("For a Garmin watch: Garmin Connect → Training & Planning → Courses → Import, then send it "
+                       "to the watch. Watches without maps (e.g. Forerunner 165) show it as a line only.",
+                       "Untuk jam Garmin: Garmin Connect → Training & Planning → Courses → Import, lalu kirim ke jam. "
+                       "Jam tanpa peta (mis. Forerunner 165) hanya menampilkannya sebagai garis."),
+    "routes gmaps": ("Open in Google Maps (voice directions)", "Buka di Google Maps (navigasi suara)"),
+    "routes gmaps how": ("Opens walking directions through this loop on your phone, with the map and a voice for "
+                         "every turn, like driving with Google Maps. Open it at the start; Google may pick a "
+                         "slightly different street here and there.",
+                         "Membuka navigasi jalan kaki lewat rute ini di HP, dengan peta dan suara di setiap belokan, "
+                         "seperti nyetir pakai Google Maps. Buka saat sudah di titik start; Google bisa memilih "
+                         "jalan yang sedikit berbeda di beberapa tempat."),
+    "routes turns": ("{n} turns", "{n} belokan"),
+    "routes cues": ("Turn list for route {n} ({turns} turns)", "Daftar belokan rute {n} ({turns} belokan)"),
+    "dir left": ("Turn left", "Belok kiri"),
+    "dir right": ("Turn right", "Belok kanan"),
+    "dir slight left": ("Bear left", "Agak ke kiri"),
+    "dir slight right": ("Bear right", "Agak ke kanan"),
+    "dir uturn": ("Turn back", "Putar balik"),
+    "dir finish": ("Finish: back at the start", "Finish: kembali ke start"),
+    "dir onto": ("onto {street}", "ke {street}"),
+    "routes for today": ("Find a {km} km route", "Cari rute {km} km"),
     "programs title": ("Your training programs", "Program latihanmu"),
     "no programs": ("No program yet. Make one below: pick what you train for, and the plan and calendar follow.",
                     "Belum ada program. Buat di bawah: pilih untuk apa kamu latihan, plan dan kalendernya menyusul."),

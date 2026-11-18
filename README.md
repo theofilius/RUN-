@@ -33,6 +33,7 @@ The app shows the formula and the data behind every number it gives.
 | **Milestone programs** | A 10K, half or marathon target can be tested on a shorter race first (10K → 5K, half → 10K, marathon → half) at the time your target is worth there. Stage 1 trains for that test with two hard sessions a week (tempo and intervals) and builds the weekly distance for the final goal; a run marked as a race in Garmin that is long and fast enough passes it, and stage 2 starts the Monday after. Missed the test? Choose to repeat it (4 more weeks) or stop the program |
 | **Weekly check-ins** | During stage 1, each finished week with hard sessions is checked: runs done, long run, hard sessions, time at easy heart rate and efficiency, each with the paper behind its limit (or marked as an own rule). When it is behind, move the test a week later or keep the date |
 | **Run analysis and splits** | Open a day you ran: distance, intensity, pace and efficiency against the menu and your last 4 weeks, plus the route on a street map (black where heart rate stayed easy, red above the easy limit) and per-km splits (distance, moving time, pace, heart rate) from the activity `.fit` file |
+| **Route finder** | Tap a start point on the map and choose a distance: the app finds up to three loops on real streets (OpenStreetMap walking routes, no key needed), shows how close each is to the distance and how much repeats the same street, and gives the chosen one as GPX to import as a Garmin course |
 | **Goal planner** | Pick a distance and a "sub" target from a dropdown built from your current estimate. Each option shows the weeks needed at your own rate. The plan adapts: goal-pace finishes on long runs when the pace is within reach, a long-run ceiling for the distance, and a taper once you set a race date |
 | **Taper and step-back weeks** | A 2-week taper before your goal race (one race week before a milestone test), a short sharpener at goal pace in race week, and a lighter week every 4th week |
 | **`.fit` workout export** | Turns planned runs into Garmin workout files you copy to your watch |
@@ -258,6 +259,7 @@ src/
   evidence.py             the papers behind each rule, with DOIs
   units.py                seconds ↔ "m:ss" / "h:mm:ss"
   env.py                  API keys from the environment or .env
+  route_generator.py      loops of a chosen distance from a start point (OSRM walking routes), GPX export
   programs.py             saved training programs (data/programs.json), one active, milestone stages
   users.py                runners (data/users.json): tee's data/ or a new runner's data/users/<id>/
   athlete.py              the current runner's settings (max HR, easy limit, injury, races)
@@ -322,6 +324,7 @@ CSV and Garmin API loaders are interchangeable, and a Strava loader could be add
 - [x] Phase 4: automatic import via the Garmin Personal API (pull-only)
 - [x] Milestone programs, weekly check-ins, run analysis and splits
 - [x] Route map for every run with GPS
+- [x] Route finder: loops of a chosen distance from a point on the map, as GPX
 - [x] Several runners: welcome page, new runners from entered stats
 - [x] Log runs by hand (runners without Garmin)
 - [ ] TCX / FIT folder loader (Huawei and other watches)
