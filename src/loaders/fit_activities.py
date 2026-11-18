@@ -30,6 +30,7 @@ MAX_SAMPLE_GAP_S = 10   # a longer gap between samples is a pause, not running t
 SPLIT_KM = 1.0
 MIN_LAST_SPLIT_KM = 0.05    # a shorter leftover at the end is GPS noise, not a split
 SPLITS_DIR = "splits"       # cached splits, one CSV per activity file
+ROUTES_DIR = "routes"       # cached GPS routes, one CSV per activity file
 
 
 def to_local(ms):
@@ -37,12 +38,17 @@ def to_local(ms):
     return pd.to_datetime(ms, unit="ms", utc=True).tz_convert("Asia/Jakarta").tz_localize(None)
 
 
-def time_in_zones(path, easy_hr_max=None):
+def read(path):
+    """Every message of one activity file. Parsing is the slow part (seconds for a long
+    run), so load_time_in_zones parses a new file once and passes the messages on."""
+    return [record.message for record in FitFile.from_file(str(path)).records]
+
+
+def time_in_zones(path, easy_hr_max=None, messages=None):
     """Seconds at or below / above easy_hr_max (default: the runner's easy limit) for one activity file, or None."""
     easy_hr_max = easy_hr_max or ATHLETE.easy_hr_max
     times, heart_rates, start = [], [], None
-    for record in FitFile.from_file(str(path)).records:
-        message = record.message
+    for message in messages if messages is not None else read(path):
         if isinstance(message, SessionMessage) and message.start_time and start is None:
             start = message.start_time
         elif isinstance(message, RecordMessage) and message.timestamp and message.heart_rate:
@@ -63,7 +69,7 @@ def time_in_zones(path, easy_hr_max=None):
     }
 
 
-def splits(path, split_km=SPLIT_KM):
+def splits(path, split_km=SPLIT_KM, messages=None):
     """Per-kilometre splits of one activity file: km, distance_km, time_s, pace_s, avg_hr.
 
     Time is moving time (pauses longer than MAX_SAMPLE_GAP_S do not count), and a
@@ -71,8 +77,7 @@ def splits(path, split_km=SPLIT_KM):
     shorter split is kept unless it is under MIN_LAST_SPLIT_KM.
     """
     times, metres, heart_rates = [], [], []
-    for record in FitFile.from_file(str(path)).records:
-        message = record.message
+    for message in messages if messages is not None else read(path):
         if isinstance(message, RecordMessage) and message.timestamp and message.distance is not None:
             times.append(message.timestamp / 1000)
             metres.append(message.distance)
@@ -102,16 +107,47 @@ def splits(path, split_km=SPLIT_KM):
     return pd.DataFrame(rows, columns=columns)
 
 
-def load_splits(path):
-    """splits(path), kept in SPLITS_DIR next to the file so it is read only once."""
+def cached(path, folder, make, messages=None):
+    """make(path, messages=...) kept as a CSV in folder next to the file, rebuilt when the file changes."""
     path = Path(path)
-    cache = path.parent / SPLITS_DIR / f"{path.stem}.csv"
+    cache = path.parent / folder / f"{path.stem}.csv"
     if cache.exists() and cache.stat().st_mtime >= path.stat().st_mtime:
         return pd.read_csv(cache)
-    table = splits(path)
+    table = make(path, messages=messages)
     cache.parent.mkdir(exist_ok=True)
     table.to_csv(cache, index=False)
     return table
+
+
+def load_splits(path, messages=None):
+    """splits(path), kept in SPLITS_DIR next to the file so it is read only once."""
+    return cached(path, SPLITS_DIR, splits, messages)
+
+
+def route(path, messages=None):
+    """GPS points of one activity file, in time order: lat, lon (degrees), km, hr.
+
+    A point without a position (treadmill, GPS still searching) is left out, and so is
+    0,0, which some watches write before they have a fix. An indoor run gives an empty table.
+    """
+    rows = []
+    for message in messages if messages is not None else read(path):
+        if isinstance(message, RecordMessage) and message.timestamp and message.position_lat is not None \
+                and message.position_long is not None and (message.position_lat, message.position_long) != (0, 0):
+            rows.append({"t": message.timestamp, "lat": message.position_lat, "lon": message.position_long,
+                         "km": message.distance / 1000 if message.distance is not None else None,
+                         "hr": message.heart_rate})
+    columns = ["lat", "lon", "km", "hr"]
+    if not rows:
+        return pd.DataFrame(columns=columns)
+    points = pd.DataFrame(rows).sort_values("t")
+    points["km"] = points["km"].ffill().fillna(0).cummax()
+    return points[columns].reset_index(drop=True)
+
+
+def load_route(path, messages=None):
+    """route(path), kept in ROUTES_DIR next to the file so it is read only once."""
+    return cached(path, ROUTES_DIR, route, messages)
 
 
 def load_time_in_zones(activity_dir):
@@ -131,7 +167,11 @@ def load_time_in_zones(activity_dir):
             zones = {c: getattr(hit, c) for c in columns}
         else:
             try:
-                zones = time_in_zones(path)
+                # One parse for everything: the splits and the map are ready before the run is opened.
+                messages = read(path)
+                zones = time_in_zones(path, messages=messages)
+                load_splits(path, messages)
+                load_route(path, messages)
             except Exception:   # a corrupt or non-activity file should not stop the dashboard
                 zones = None
         if zones:

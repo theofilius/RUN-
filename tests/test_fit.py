@@ -10,7 +10,7 @@ from fit_tool.profile.messages.workout_step_message import WorkoutStepMessage
 from fit_tool.profile.profile_type import FileType, Manufacturer, WorkoutStepTarget
 
 from src.export.fit_workout import MAX_NAME, MAX_NOTES, shorten, workout_fit_bytes
-from src.loaders.fit_activities import add_time_in_zones, load_splits, splits, time_in_zones
+from src.loaders.fit_activities import add_time_in_zones, load_route, load_splits, route, splits, time_in_zones
 from src.planner.plan_generator import interval_run, long_run
 
 EFFICIENCY = 0.77
@@ -81,6 +81,8 @@ def test_runs_are_matched_to_activity_files(tmp_path, runs):
                    [150] * 300)
     merged = add_time_in_zones(runs, tmp_path)
     assert merged["fit_file"].notna().sum() == 1
+    # The same read already left the splits and the route, so opening the run is instant.
+    assert (tmp_path / "splits" / "run.csv").exists() and (tmp_path / "routes" / "run.csv").exists()
     assert merged.loc[merged["start_time"] == run_start, "fit_file"].iloc[0] == "run.fit"
 
 
@@ -119,3 +121,34 @@ def test_splits_are_whole_kilometres_plus_the_rest(tmp_path):
     assert abs(table["time_s"].sum() - 1000) < 1
     assert (load_splits(tmp_path / "run.fit")["km"] == table["km"]).all()
     assert (tmp_path / "splits" / "run.csv").exists()          # cached for next time
+
+
+def test_route_keeps_only_points_with_a_position(tmp_path):
+    start_ms = round(pd.Timestamp("2026-10-29 19:00", tz="Asia/Jakarta").timestamp() * 1000)
+    file_id = FileIdMessage()
+    file_id.type = FileType.ACTIVITY
+    file_id.manufacturer = Manufacturer.DEVELOPMENT.value
+    file_id.product = 0
+    file_id.time_created = start_ms
+    records = []
+    for i, position in enumerate([None, (0.0, 0.0), (-6.19, 106.88), (-6.191, 106.881)]):
+        record = RecordMessage()
+        record.timestamp = start_ms + i * 1000
+        record.distance = i * 2.5
+        record.heart_rate = 150
+        if position:
+            record.position_lat, record.position_long = position
+        records.append(record)
+    builder = FitFileBuilder(auto_define=True)
+    builder.add(file_id)
+    builder.add_all(records)
+    builder.build().to_file(str(tmp_path / "run.fit"))
+
+    points = route(tmp_path / "run.fit")
+    assert len(points) == 2                                   # no fix yet and 0,0 are left out
+    assert abs(points["lat"].iloc[0] + 6.19) < 1e-4 and abs(points["lon"].iloc[1] - 106.881) < 1e-4
+    assert list(points["km"].round(4)) == [0.005, 0.0075]
+    assert len(load_route(tmp_path / "run.fit")) == 2
+    assert (tmp_path / "routes" / "run.csv").exists()          # cached for next time
+    write_run(tmp_path / "indoor.fit", pd.Timestamp("2026-10-29 19:00", tz="Asia/Jakarta"), 10, 2.5)
+    assert route(tmp_path / "indoor.fit").empty               # treadmill: no map

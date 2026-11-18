@@ -17,6 +17,7 @@ The page answers questions in the order a runner asks them:
 import base64
 import hashlib
 import json
+import math
 import sys
 from datetime import time
 from html import escape
@@ -53,7 +54,7 @@ from src.evidence import SOURCES
 from src.goal_settings import DISTANCES, distance_name, load_goal
 from src.loaders.forecast_openmeteo import fetched_at, load_forecast
 from src.loaders.garmin_api import KEY_WARN_DAYS, SYNC_HOURS, KeyRejected, api_key, key_days_left, sync, synced_at
-from src.loaders.fit_activities import ACTIVITY_DIR, load_splits
+from src.loaders.fit_activities import ACTIVITY_DIR, load_route, load_splits
 from src.loaders.iqair import load_current
 from src.loaders import manual_runs
 from src.loaders.manual_stats import covered_until as stats_covered_until, history_end, runs_from_stats
@@ -1347,7 +1348,81 @@ def run_analysis(run, day):
          f"<div class='verdict{' bad' if overall == 'too hard' else ''}'>{t('overall ' + overall)}</div>"
          f"<ul>{''.join(f'<li>{line}</li>' for line in lines)}</ul>"
          f"<table>{''.join(f'<tr><td>{a}</td><td>{b}</td></tr>' for a, b in rows)}</table></div>")
+    route_map(run)
     split_table(run)
+
+
+MAP_HEIGHT = 380
+
+
+def map_zoom(points, width=400, height=MAP_HEIGHT):
+    """The web-map zoom that fits the whole route (Mapbox GL: a 512-px world at zoom 0, Mercator), with a little margin."""
+    lat_span = max(points["lat"].max() - points["lat"].min(), 1e-4)
+    lon_span = max(points["lon"].max() - points["lon"].min(), 1e-4)
+    by_lon = math.log2(width * 360 / (512 * lon_span))
+    by_lat = math.log2(height * 360 * math.cos(math.radians(points["lat"].mean())) / (512 * lat_span))
+    return min(by_lon, by_lat, 17) - 0.4
+
+
+def zone_lines(points):
+    """Lat/lon/hover lists for the easy (False) and the above-easy (True) parts of the route.
+
+    A stretch takes the zone of its end point; each stretch starts at the point where the
+    zone changed so the line has no gaps, and None splits stretches into separate lines.
+    """
+    lines = {False: [], True: []}          # (lat, lon, hover text) per point; None = a break
+    hard = (points["hr"] > EASY_HR_MAX).fillna(False).tolist()
+    for i, point in enumerate(points.itertuples()):
+        line = lines[hard[i]]
+        if i == 0 or hard[i] != hard[i - 1]:
+            if line:
+                line.append(None)
+            if i:
+                before = points.iloc[i - 1]
+                line.append((before["lat"], before["lon"], None))
+        hr = f"{point.hr:.0f} bpm" if pd.notna(point.hr) else "-"
+        line.append((point.lat, point.lon, f"{point.km:.2f} km · {hr}"))
+    return {zone: {"lat": [p[0] if p else None for p in line], "lon": [p[1] if p else None for p in line],
+                   "text": [p[2] if p else None for p in line]} for zone, line in lines.items()}
+
+
+def route_map(run):
+    """The run's GPS route on a street map: black where HR was easy, red above the easy limit."""
+    fit_file = run.get("fit_file")
+    if pd.notna(run.get("manual_id")) or pd.isna(fit_file):
+        return
+    path = DATA_DIR / ACTIVITY_DIR / str(fit_file)
+    if not path.exists():
+        return
+    points = load_route(path)
+    if len(points) < 2:
+        st.caption(t("no route"))
+        return
+    fig = go.Figure()
+    for hard, line in zone_lines(points).items():
+        if line["lat"]:
+            fig.add_trace(go.Scattermapbox(lat=line["lat"], lon=line["lon"], mode="lines", text=line["text"],
+                                           hoverinfo="text", line={"width": 4, "color": RED if hard else INK},
+                                           name=t("map hard" if hard else "map easy", hr=EASY_HR_MAX)))
+    # A dot at every whole km, then start and finish on top.
+    marks = points.groupby(points["km"].astype(int)).first().iloc[1:]
+    fig.add_trace(go.Scattermapbox(lat=marks["lat"], lon=marks["lon"], mode="markers+text",
+                                   text=[str(k) for k in marks.index], textposition="top right",
+                                   marker={"size": 9, "color": PAPER}, hoverinfo="skip", showlegend=False,
+                                   textfont={"size": 12, "color": INK}))
+    ends = points.iloc[[0, -1]]
+    fig.add_trace(go.Scattermapbox(lat=ends["lat"], lon=ends["lon"], mode="markers", hoverinfo="text",
+                                   text=[t("map start"), t("map finish")], showlegend=False,
+                                   marker={"size": 14, "color": ["#1a9850", RED]}))
+    fig.update_layout(mapbox={"style": "open-street-map", "zoom": map_zoom(points),
+                              "center": {"lat": (points["lat"].min() + points["lat"].max()) / 2,
+                                         "lon": (points["lon"].min() + points["lon"].max()) / 2}},
+                      height=MAP_HEIGHT, margin={"l": 0, "r": 0, "t": 0, "b": 0},
+                      legend={"orientation": "h", "x": 0, "y": 1, "bgcolor": "rgba(238,235,227,0.85)",
+                              "font": {"color": INK}},
+                      paper_bgcolor="rgba(0,0,0,0)")
+    html(f"<div class='eyebrow'>{t('route')}</div>")
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False, "scrollZoom": True})
 
 
 def split_table(run):
