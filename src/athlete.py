@@ -8,9 +8,13 @@ heart-rate zones) register with on_change() and are recalculated on a switch.
 One runner at a time: the dashboard is a local, single-person app.
 """
 
+import math
 from dataclasses import dataclass, field
 
 from src import config
+
+CONFIRM_BPM = 2       # own rule: a max HR counts once another run came within 2 bpm of it
+PLAUSIBLE_MAX = 230   # own rule: a higher reading is a sensor error, not a heart rate
 
 
 @dataclass
@@ -30,6 +34,22 @@ class Athlete:
         if self.talk_test_hr:
             return int(self.talk_test_hr)
         return round(self.easy_hr_fraction * self.max_hr)   # whole bpm, like the watch shows
+
+
+def max_hr_from_runs(max_hrs, within=CONFIRM_BPM):
+    """The highest max HR in the runs that another run confirms, or None.
+
+    Confirmed = the next highest run is within `within` bpm. A wrist sensor can lock
+    onto cadence and show one high number, but two runs on different days near the same
+    peak are hard to fake. Example: 201, 200, 199, 199 gives 201; 210, 201, 200 gives 201.
+    """
+    values = sorted((int(v) for v in max_hrs
+                     if v is not None and not (isinstance(v, float) and math.isnan(v)) and 0 < v <= PLAUSIBLE_MAX),
+                    reverse=True)
+    for high, next_high in zip(values, values[1:]):
+        if next_high >= high - within:
+            return high
+    return None
 
 
 ATHLETE = Athlete()

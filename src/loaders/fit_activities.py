@@ -31,6 +31,7 @@ SPLIT_KM = 1.0
 MIN_LAST_SPLIT_KM = 0.05    # a shorter leftover at the end is GPS noise, not a split
 SPLITS_DIR = "splits"       # cached splits, one CSV per activity file
 ROUTES_DIR = "routes"       # cached GPS routes, one CSV per activity file
+HR_DIR = "heart_rate"       # cached per-second heart rate, so a new easy limit is a quick recount
 
 
 def to_local(ms):
@@ -44,9 +45,9 @@ def read(path):
     return [record.message for record in FitFile.from_file(str(path)).records]
 
 
-def time_in_zones(path, easy_hr_max=None, messages=None):
-    """Seconds at or below / above easy_hr_max (default: the runner's easy limit) for one activity file, or None."""
-    easy_hr_max = easy_hr_max or ATHLETE.easy_hr_max
+def heart_rate(path, messages=None):
+    """Heart-rate samples of one activity file: time and hr (local time), plus start,
+    the session start (the same on every row; the first sample if the file has none)."""
     times, heart_rates, start = [], [], None
     for message in messages if messages is not None else read(path):
         if isinstance(message, SessionMessage) and message.start_time and start is None:
@@ -54,19 +55,31 @@ def time_in_zones(path, easy_hr_max=None, messages=None):
         elif isinstance(message, RecordMessage) and message.timestamp and message.heart_rate:
             times.append(message.timestamp)
             heart_rates.append(message.heart_rate)
-    if len(times) < 2:
-        return None
-
+    if not times:
+        return pd.DataFrame(columns=["time", "hr", "start"])
     samples = pd.DataFrame({"time": to_local(times), "hr": heart_rates}).sort_values("time")
+    samples["start"] = to_local(start) if start else samples["time"].iloc[0]
+    return samples.reset_index(drop=True)
+
+
+def zones_from(samples, easy_hr_max, fit_file):
+    """Seconds in all and at or below easy_hr_max from heart_rate() samples, or None."""
+    if len(samples) < 2:
+        return None
+    times = pd.to_datetime(samples["time"])
     # Each sample counts for the time since the previous one (pauses capped).
-    samples["seconds"] = samples["time"].diff().dt.total_seconds().fillna(0).clip(upper=MAX_SAMPLE_GAP_S)
-    easy = samples.loc[samples["hr"] <= easy_hr_max, "seconds"].sum()
+    seconds = times.diff().dt.total_seconds().fillna(0).clip(upper=MAX_SAMPLE_GAP_S)
     return {
-        "start_time": to_local(start) if start else samples["time"].iloc[0],
-        "zone_total_s": samples["seconds"].sum(),
-        "zone_easy_s": easy,
-        "fit_file": Path(path).name,
+        "start_time": pd.Timestamp(samples["start"].iloc[0]),
+        "zone_total_s": seconds.sum(),
+        "zone_easy_s": seconds[samples["hr"] <= easy_hr_max].sum(),
+        "fit_file": fit_file,
     }
+
+
+def time_in_zones(path, easy_hr_max=None, messages=None):
+    """Seconds at or below / above easy_hr_max (default: the runner's easy limit) for one activity file, or None."""
+    return zones_from(heart_rate(path, messages), easy_hr_max or ATHLETE.easy_hr_max, Path(path).name)
 
 
 def splits(path, split_km=SPLIT_KM, messages=None):
@@ -107,16 +120,31 @@ def splits(path, split_km=SPLIT_KM, messages=None):
     return pd.DataFrame(rows, columns=columns)
 
 
+def cache_path(path, folder):
+    return Path(path).parent / folder / f"{Path(path).stem}.csv"
+
+
+def fresh(path, folder):
+    """Whether folder holds a cached table for this file that is newer than the file."""
+    cache = cache_path(path, folder)
+    return cache.exists() and cache.stat().st_mtime >= Path(path).stat().st_mtime
+
+
 def cached(path, folder, make, messages=None):
     """make(path, messages=...) kept as a CSV in folder next to the file, rebuilt when the file changes."""
     path = Path(path)
-    cache = path.parent / folder / f"{path.stem}.csv"
-    if cache.exists() and cache.stat().st_mtime >= path.stat().st_mtime:
+    cache = cache_path(path, folder)
+    if fresh(path, folder):
         return pd.read_csv(cache)
     table = make(path, messages=messages)
     cache.parent.mkdir(exist_ok=True)
     table.to_csv(cache, index=False)
     return table
+
+
+def load_heart_rate(path, messages=None):
+    """heart_rate(path), kept in HR_DIR next to the file so it is read only once."""
+    return cached(path, HR_DIR, heart_rate, messages)
 
 
 def load_splits(path, messages=None):
@@ -154,10 +182,10 @@ def load_time_in_zones(activity_dir):
     """One row per readable .fit file in activity_dir (empty table if none)."""
     activity_dir = Path(activity_dir)
     columns = ["start_time", "zone_total_s", "zone_easy_s", "fit_file"]
-    cache_path = activity_dir / ZONES_CACHE
-    cached = pd.read_csv(cache_path, parse_dates=["start_time"]) if cache_path.exists() else pd.DataFrame()
-    # A cached row is reused while the file and the easy limit are unchanged.
-    known = {(row.fit_file, row.modified, row.easy_hr_max): row for row in cached.itertuples()}
+    zones_file = activity_dir / ZONES_CACHE
+    saved = pd.read_csv(zones_file, parse_dates=["start_time"]) if zones_file.exists() else pd.DataFrame()
+    # A saved row is reused while the file and the easy limit are unchanged.
+    known = {(row.fit_file, row.modified, row.easy_hr_max): row for row in saved.itertuples()}
 
     rows = []
     for path in sorted(activity_dir.glob("*.fit")):
@@ -167,9 +195,11 @@ def load_time_in_zones(activity_dir):
             zones = {c: getattr(hit, c) for c in columns}
         else:
             try:
-                # One parse for everything: the splits and the map are ready before the run is opened.
-                messages = read(path)
-                zones = time_in_zones(path, messages=messages)
+                # A new file is parsed once for everything, so its splits and map are ready
+                # before the run is opened. A new easy limit only recounts the cached heart rate.
+                caches = (HR_DIR, SPLITS_DIR, ROUTES_DIR)
+                messages = None if all(fresh(path, folder) for folder in caches) else read(path)
+                zones = zones_from(load_heart_rate(path, messages), ATHLETE.easy_hr_max, path.name)
                 load_splits(path, messages)
                 load_route(path, messages)
             except Exception:   # a corrupt or non-activity file should not stop the dashboard
@@ -178,7 +208,7 @@ def load_time_in_zones(activity_dir):
             rows.append({**zones, "modified": modified, "easy_hr_max": ATHLETE.easy_hr_max})
     table = pd.DataFrame(rows, columns=columns + ["modified", "easy_hr_max"])
     if rows:
-        table.to_csv(cache_path, index=False)
+        table.to_csv(zones_file, index=False)
     return table[columns]
 
 

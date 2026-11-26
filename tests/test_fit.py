@@ -81,9 +81,26 @@ def test_runs_are_matched_to_activity_files(tmp_path, runs):
                    [150] * 300)
     merged = add_time_in_zones(runs, tmp_path)
     assert merged["fit_file"].notna().sum() == 1
+    assert merged.loc[merged["start_time"] == run_start, "fit_file"].iloc[0] == "run.fit"
     # The same read already left the splits and the route, so opening the run is instant.
     assert (tmp_path / "splits" / "run.csv").exists() and (tmp_path / "routes" / "run.csv").exists()
-    assert merged.loc[merged["start_time"] == run_start, "fit_file"].iloc[0] == "run.fit"
+    assert (tmp_path / "heart_rate" / "run.csv").exists()
+
+
+def test_a_new_easy_limit_recounts_without_reading_the_file_again(tmp_path, monkeypatch):
+    from src.athlete import Athlete, use
+    from src.loaders import fit_activities
+    write_activity(tmp_path / "run.fit", pd.Timestamp("2026-10-29 19:00", tz="Asia/Jakarta"), [150] * 300 + [155] * 300)
+    try:
+        use(Athlete(max_hr=196))                                       # easy limit 153
+        first = fit_activities.load_time_in_zones(tmp_path)
+        monkeypatch.setattr(fit_activities, "read", lambda path: (_ for _ in ()).throw(AssertionError("parsed")))
+        use(Athlete(max_hr=201))                                       # easy limit 157: recount from the cache
+        second = fit_activities.load_time_in_zones(tmp_path)
+    finally:
+        use(Athlete())
+    assert 298 <= first["zone_easy_s"].iloc[0] <= 300                 # only the 150s
+    assert 598 <= second["zone_easy_s"].iloc[0] <= 600                 # 155 is easy now too
 
 
 def test_no_activity_folder_leaves_runs_unchanged(tmp_path, runs):

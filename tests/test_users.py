@@ -78,3 +78,14 @@ def test_a_talk_test_replaces_the_share_of_max_hr(tmp_path):
         use(Athlete())
     users.set_talk_test(tmp_path, store, "tee", None)
     assert users.athlete(users.find(users.load(tmp_path), "tee")).easy_hr_max == round(0.78 * 196)
+
+
+def test_max_hr_comes_from_runs_once_a_second_run_confirms_it():
+    from src.athlete import max_hr_from_runs
+    assert max_hr_from_runs([199, 201, 196, 200, 199]) == 201          # tee: 201, confirmed by 200
+    assert max_hr_from_runs([215, 201, 200]) == 201                  # a lone spike does not count
+    assert max_hr_from_runs([float("nan"), None, 250, 190, 189]) == 190   # missing and impossible values skipped
+    assert max_hr_from_runs([190]) is None and max_hr_from_runs([]) is None
+    tee = users.athlete(dict(users.FIRST_USER), runs_max_hr=201)
+    assert (tee.max_hr, tee.easy_hr_max) == (201, 157)                # 0.78 x 201
+    assert users.athlete(dict(users.FIRST_USER)).max_hr == 196        # no data yet: config.MAX_HR

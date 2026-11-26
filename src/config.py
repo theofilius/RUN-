@@ -4,10 +4,12 @@ Change values here, not inside the analysis code, so every insight
 can point back to one place that says which numbers were assumed.
 """
 
-# Highest "Max HR" in the Garmin export (run on 2026-05-22).
+# Max HR before any run data is loaded. Once runs are loaded, the dashboard uses the
+# highest max HR that a second run confirms (athlete.max_hr_from_runs): 201 on
+# 2025-09-05, confirmed by 200 on 2026-01-30. 196 was the highest in the May-Oct 2026
+# CSV export, which did not reach back to those runs.
 # A measured value beats a formula: Tanaka 2001 found individuals differ from
 # 208 - 0.7 x age by about 10 bpm, and recommends direct measurement when possible.
-# Replace with the value from Garmin Connect > Heart Rate Zones if you find it.
 MAX_HR = 196
 
 # City for the weather and air-quality forecast (Jakarta, Tangerang or Bogor).
@@ -26,8 +28,8 @@ RACES = {
 }
 
 # A run counts as "easy" if its average HR is at or below this share of MAX_HR.
-# 0.78 x 196 = 153 bpm. Lab studies put the top of easy at ~79% (Nuuttila 2025) and
-# ~75% (Benitez-Munoz 2025) of max HR for men, +/-5% between people; at 80% almost
+# 0.78 x 201 = 157 bpm with the max HR from your runs (153 with 196, before they load).
+# Lab studies put the top of easy at ~79% (Nuuttila 2025) and ~75% (Benitez-Munoz 2025) of max HR for men, +/-5% between people; at 80% almost
 # half of runners are already above it. A talk test (Persinger 2004), entered in the dashboard,
 # replaces this share with your own number.
 EASY_HR_FRACTION = 0.78

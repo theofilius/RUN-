@@ -3,6 +3,4 @@ numpy
 streamlit>=1.37
 plotly>=5.19
 fit-tool==0.9.16
-folium>=0.17
-streamlit-folium>=0.22  # click on a map (route finder)
 pytest  # tests only

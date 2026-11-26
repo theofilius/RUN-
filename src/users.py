@@ -99,10 +99,15 @@ def set_talk_test(data_root, store, user_id, hr, day=None):
     save(data_root, store)
 
 
-def athlete(user):
-    """The runner's settings: config.py for tee, otherwise from their stats; a talk test for both."""
+def athlete(user, runs_max_hr=None):
+    """The runner's settings: config.py for tee, otherwise from their stats; a talk test for both.
+
+    runs_max_hr: the confirmed highest max HR in tee's runs (athlete.max_hr_from_runs);
+    it replaces config.MAX_HR, which stays as the value before any data is loaded.
+    """
     if user.get("source") != "stats":
-        return Athlete(name=user["name"], talk_test_hr=talk_test_hr(user))
+        return Athlete(name=user["name"], talk_test_hr=talk_test_hr(user),
+                       **({"max_hr": int(runs_max_hr)} if runs_max_hr else {}))
     stats = user["stats"]
     hr, hr_source = max_hr(stats)
     return Athlete(name=user["name"], max_hr=hr, max_hr_source=hr_source,
